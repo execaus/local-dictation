@@ -1,4 +1,6 @@
 import AVFoundation
+import AudioToolbox
+import CoreAudio
 import Foundation
 
 enum RecordingError: LocalizedError {
@@ -6,6 +8,7 @@ enum RecordingError: LocalizedError {
     case microphoneUnavailable
     case tooShort
     case invalidAudioFile
+    case selectedMicrophoneUnavailable
 
     var errorDescription: String? {
         switch self {
@@ -13,19 +16,33 @@ enum RecordingError: LocalizedError {
         case .microphoneUnavailable: "Не удалось запустить микрофон."
         case .tooShort: "Запись слишком короткая для распознавания."
         case .invalidAudioFile: "Не удалось прочитать тестовый аудиофайл."
+        case .selectedMicrophoneUnavailable: "Выбранный микрофон недоступен. Подключите его или выберите другой в настройках приложения."
         }
     }
 }
 
 final class AudioRecorder: @unchecked Sendable {
-    private let engine = AVAudioEngine()
+    private var engine = AVAudioEngine()
     private let lock = NSLock()
     private var samples: [Float] = []
     private var sampleRate: Double = 0
     private var isRecording = false
 
-    func start() throws {
+    func start(microphoneUID: String? = nil) throws {
+        // A fresh engine ensures that switching back to the system default
+        // never keeps the device chosen for a previous recording.
+        engine = AVAudioEngine()
         let input = engine.inputNode
+        if let microphoneUID {
+            guard let deviceID = Self.deviceID(for: microphoneUID) else {
+                throw RecordingError.selectedMicrophoneUnavailable
+            }
+            do {
+                try input.auAudioUnit.setDeviceID(deviceID)
+            } catch {
+                throw RecordingError.selectedMicrophoneUnavailable
+            }
+        }
         let format = input.outputFormat(forBus: 0)
         guard format.sampleRate > 0, format.channelCount > 0 else {
             throw RecordingError.microphoneUnavailable
@@ -64,6 +81,10 @@ final class AudioRecorder: @unchecked Sendable {
             lock.unlock()
             throw RecordingError.microphoneUnavailable
         }
+    }
+
+    static func deviceID(for uid: String) -> AudioDeviceID? {
+        AudioInputDevices.available().first { $0.uid == uid }?.id
     }
 
     func stop() throws -> [Float] {

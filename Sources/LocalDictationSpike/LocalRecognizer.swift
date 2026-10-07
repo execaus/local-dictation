@@ -6,6 +6,7 @@ enum RecognitionError: LocalizedError {
     case modelLoadFailed
     case inferenceFailed
     case emptyResult
+    case noAudioSignal
 
     var errorDescription: String? {
         switch self {
@@ -13,6 +14,7 @@ enum RecognitionError: LocalizedError {
         case .modelLoadFailed: "Не удалось загрузить локальную модель."
         case .inferenceFailed: "Не удалось распознать запись."
         case .emptyResult: "Речь не обнаружена."
+        case .noAudioSignal: "Микрофон почти не передал звук. Проверьте выбранный вход в настройках звука macOS и попробуйте запись ещё раз."
         }
     }
 }
@@ -34,7 +36,10 @@ final class LocalRecognizer: @unchecked Sendable {
     }
 
     func smokeTest() -> Bool {
-        switch transcribeOnQueue([Float](repeating: 0, count: 32_000), prompt: "") {
+        let tone = (0..<32_000).map { index in
+            Float(0.02 * sin(2 * Double.pi * 440 * Double(index) / 16_000))
+        }
+        switch transcribeOnQueue(tone, prompt: "") {
         case .success, .failure(.emptyResult): return true
         case .failure: return false
         }
@@ -45,6 +50,14 @@ final class LocalRecognizer: @unchecked Sendable {
     }
 
     private func transcribeOnQueue(_ samples: [Float], prompt: String) -> Result<String, RecognitionError> {
+        // Silence and a muted/wrong microphone can make Whisper repeat prompt words.
+        // Reject near-silent input before passing dictionary hints to the model.
+        let signal = samples.reduce(into: (sum: Double(0), peak: Float(0))) { result, sample in
+            result.sum += Double(sample) * Double(sample)
+            result.peak = max(result.peak, abs(sample))
+        }
+        let rms = sqrt(signal.sum / Double(max(samples.count, 1)))
+        guard signal.peak >= 0.005, rms >= 0.0008 else { return .failure(.noAudioSignal) }
         guard let modelURL = overrideModelURL ?? Bundle.main.url(forResource: "ggml-large-v3-turbo-q5_0", withExtension: "bin") else {
             return .failure(.modelMissing)
         }

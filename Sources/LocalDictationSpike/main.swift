@@ -18,8 +18,10 @@ private let cancelHotKeyID: UInt32 = 2
     private var cancelHotKey: EventHotKeyRef?
     private var escapeStopHotKey: EventHotKeyRef?
     private var escapeStopMonitor: Any?
-    private var dictionaryWindow: NSWindow?
-    private var triggerWindow: NSWindow?
+    private var accessibilityRetryTimer: Timer?
+    private var pendingRightControl = false
+    private var settingsWindow: NSWindow?
+    private var lastExternalPID: pid_t?
     private var state: State = .idle
     private var trigger: DictationTrigger = {
         guard let data = UserDefaults.standard.data(forKey: "dictationTrigger.v1"),
@@ -29,6 +31,7 @@ private let cancelHotKeyID: UInt32 = 2
     private let recorder = AudioRecorder()
     private let recognizer = LocalRecognizer()
     private let dictionaryStore = DictionaryStore()
+    private let microphoneStore = MicrophoneStore()
     private let statusPanel = StatusPanel()
     private let rightControlMonitor = DoubleRightControlMonitor()
 
@@ -42,12 +45,17 @@ private let cancelHotKeyID: UInt32 = 2
         cancelItem.isEnabled = false
         menu.addItem(cancelItem)
         menu.addItem(.separator())
-        menu.addItem(NSMenuItem(title: "Словарь терминов…", action: #selector(showDictionary), keyEquivalent: ""))
-        menu.addItem(NSMenuItem(title: "Управление клавишами…", action: #selector(showTriggerSettings), keyEquivalent: ""))
+        menu.addItem(NSMenuItem(title: "Настройки…", action: #selector(showSettings), keyEquivalent: ""))
         menu.addItem(NSMenuItem(title: "Разрешить Универсальный доступ…", action: #selector(requestAccessibility), keyEquivalent: ""))
         menu.addItem(NSMenuItem(title: "Выход", action: #selector(quit), keyEquivalent: "q"))
         for item in menu.items { item.target = self }
         statusItem.menu = menu
+        let currentPID = NSWorkspace.shared.frontmostApplication?.processIdentifier
+        if let currentPID, currentPID != ProcessInfo.processInfo.processIdentifier {
+            lastExternalPID = currentPID
+        }
+        NSWorkspace.shared.notificationCenter.addObserver(self, selector: #selector(handleApplicationActivation),
+                                                          name: NSWorkspace.didActivateApplicationNotification, object: nil)
         registerHotKey()
         NSWorkspace.shared.notificationCenter.addObserver(self, selector: #selector(handleSessionInterruption),
                                                           name: NSWorkspace.sessionDidResignActiveNotification, object: nil)
@@ -76,6 +84,7 @@ private let cancelHotKeyID: UInt32 = 2
         RegisterEventHotKey(53, UInt32(controlKey | optionKey), EventHotKeyID(signature: hotKeySignature, id: cancelHotKeyID),
                             GetApplicationEventTarget(), 0, &cancelHotKey)
         if let error = installTrigger(trigger, persist: false) {
+            let retryRightControl = trigger == .doubleRightControl && !AXIsProcessTrusted()
             trigger = .shortcut(.standard)
             if let fallbackError = installTrigger(trigger, persist: false) {
                 showError(NSError(domain: "LocalDictation", code: 1,
@@ -83,6 +92,30 @@ private let cancelHotKeyID: UInt32 = 2
             } else {
                 showError(NSError(domain: "LocalDictation", code: 1,
                                   userInfo: [NSLocalizedDescriptionKey: error + " Включено стандартное сочетание."]))
+            }
+            if retryRightControl {
+                pendingRightControl = true
+                startAccessibilityRetry()
+            }
+        }
+    }
+
+    private func startAccessibilityRetry() {
+        guard accessibilityRetryTimer == nil else { return }
+        accessibilityRetryTimer = Timer.scheduledTimer(withTimeInterval: 1.5, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                guard self.pendingRightControl else {
+                    self.accessibilityRetryTimer?.invalidate()
+                    self.accessibilityRetryTimer = nil
+                    return
+                }
+                guard AXIsProcessTrusted(), case .idle = self.state else { return }
+                if self.installTrigger(.doubleRightControl, persist: true) == nil {
+                    self.pendingRightControl = false
+                    self.accessibilityRetryTimer?.invalidate()
+                    self.accessibilityRetryTimer = nil
+                }
             }
         }
     }
@@ -106,8 +139,13 @@ private let cancelHotKeyID: UInt32 = 2
             if let hotKey { UnregisterEventHotKey(hotKey) }
             hotKey = replacement
             rightControlMonitor.stop()
+            if persist { pendingRightControl = false }
         case .doubleRightControl:
             guard AXIsProcessTrusted() else {
+                if persist {
+                    pendingRightControl = true
+                    startAccessibilityRetry()
+                }
                 return "Для двойного правого Control разрешите приложению доступ к «Универсальному доступу»."
             }
             guard rightControlMonitor.start(onHoldStart: { [weak self] in self?.beginRecording(mode: .hold) },
@@ -207,7 +245,7 @@ private let cancelHotKeyID: UInt32 = 2
 
     private func beginRecording(mode: RecordingMode) {
         guard case .idle = state else { return }
-        guard let pid = NSWorkspace.shared.frontmostApplication?.processIdentifier else {
+        guard let pid = targetApplicationPID() else {
             showError(InsertError.noFocusedElement)
             return
         }
@@ -234,12 +272,27 @@ private let cancelHotKeyID: UInt32 = 2
         }
     }
 
+    private func targetApplicationPID() -> pid_t? {
+        if let pid = NSWorkspace.shared.frontmostApplication?.processIdentifier,
+           pid != ProcessInfo.processInfo.processIdentifier {
+            lastExternalPID = pid
+            return pid
+        }
+        return lastExternalPID
+    }
+
+    @objc private func handleApplicationActivation(_ notification: Notification) {
+        guard let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication,
+              app.processIdentifier != ProcessInfo.processInfo.processIdentifier else { return }
+        lastExternalPID = app.processIdentifier
+    }
+
     private func startRecording(for pid: pid_t, mode: RecordingMode) {
         guard case .idle = state else { return }
         if mode == .hold && !rightControlMonitor.isHolding { return }
         if mode == .sticky && !rightControlMonitor.isSticky { return }
         do {
-            try recorder.start()
+            try recorder.start(microphoneUID: microphoneStore.selectedUID)
             state = .recording(pid, mode)
             cancelItem.isEnabled = true
             statusPanel.showRecording()
@@ -261,8 +314,7 @@ private let cancelHotKeyID: UInt32 = 2
             statusPanel.showProcessing()
             updateActionTitle()
             statusItem.button?.image = NSImage(systemSymbolName: "hourglass", accessibilityDescription: "Распознавание")
-            let prompt = dictionaryStore.entries.map(\.written).joined(separator: ", ")
-            recognizer.transcribe(samples, prompt: prompt) { [weak self] result in
+            recognizer.transcribe(samples) { [weak self] result in
                 MainActor.assumeIsolated {
                     guard let self else { return }
                     self.state = .idle
@@ -273,8 +325,7 @@ private let cancelHotKeyID: UInt32 = 2
                     switch result {
                     case .success(let rawText):
                         let text = TermDictionary.apply(self.dictionaryStore.rules, to: rawText)
-                        do { try TextInserter.insert(text, expectedPID: pid) }
-                        catch { self.showError(error, result: text) }
+                        self.insertRecognizedText(text, into: pid)
                     case .failure(let error):
                         self.showError(error)
                     }
@@ -289,6 +340,25 @@ private let cancelHotKeyID: UInt32 = 2
             statusItem.button?.image = NSImage(systemSymbolName: "waveform", accessibilityDescription: "Локальная диктовка")
             showError(error)
         }
+    }
+
+    private func insertRecognizedText(_ text: String, into pid: pid_t) {
+        // Choosing a status-menu item can leave this accessory app frontmost.
+        // Restore the editor before checking its focused field and posting text.
+        if NSWorkspace.shared.frontmostApplication?.processIdentifier == ProcessInfo.processInfo.processIdentifier,
+           let target = NSRunningApplication(processIdentifier: pid) {
+            target.activate()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
+                self?.performInsertion(text, into: pid)
+            }
+        } else {
+            performInsertion(text, into: pid)
+        }
+    }
+
+    private func performInsertion(_ text: String, into pid: pid_t) {
+        do { try TextInserter.insert(text, expectedPID: pid) }
+        catch { showError(error, result: text) }
     }
 
     @objc private func cancelRecording() {
@@ -344,41 +414,31 @@ private let cancelHotKeyID: UInt32 = 2
         _ = AXIsProcessTrustedWithOptions(options)
     }
 
-    @objc private func showDictionary() {
-        if dictionaryWindow == nil {
-            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 640, height: 400),
-                                  styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
-                                  backing: .buffered, defer: false)
-            window.title = "Словарь терминов"
-            window.titlebarAppearsTransparent = true
-            window.contentView = NSHostingView(rootView: DictionaryView(store: dictionaryStore))
-            window.center()
-            dictionaryWindow = window
-        }
-        NSApplication.shared.activate(ignoringOtherApps: true)
-        dictionaryWindow?.makeKeyAndOrderFront(nil)
-    }
-
-    @objc private func showTriggerSettings() {
-        if triggerWindow == nil {
-            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 610, height: 450),
+    @objc private func showSettings() {
+        if settingsWindow == nil {
+            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 720, height: 490),
                                   styleMask: [.titled, .closable, .miniaturizable, .fullSizeContentView],
                                   backing: .buffered, defer: false)
-            window.title = "Управление клавишами"
+            window.title = "Настройки"
             window.titlebarAppearsTransparent = true
-            window.contentView = NSHostingView(rootView: TriggerSettingsView(trigger: trigger) { [weak self] candidate in
+            window.contentView = NSHostingView(rootView: SettingsView(microphoneStore: microphoneStore,
+                                                                      dictionaryStore: dictionaryStore,
+                                                                      trigger: trigger,
+                                                                      applyTrigger: { [weak self] candidate in
                 self?.installTrigger(candidate, persist: true)
-            })
+            }))
             window.center()
-            triggerWindow = window
+            settingsWindow = window
         }
+        microphoneStore.refresh()
         NSApplication.shared.activate(ignoringOtherApps: true)
-        triggerWindow?.makeKeyAndOrderFront(nil)
+        settingsWindow?.makeKeyAndOrderFront(nil)
     }
 
     @objc private func quit() { NSApplication.shared.terminate(nil) }
 
     func applicationWillTerminate(_ notification: Notification) {
+        accessibilityRetryTimer?.invalidate()
         if case .recording = state { recorder.cancel() }
         statusPanel.hide()
         rightControlMonitor.stop()
@@ -448,6 +508,17 @@ if CommandLine.arguments.contains("--model-check") {
         exit(1)
     }
     print("Local model smoke test passed")
+    exit(0)
+}
+
+if CommandLine.arguments.contains("--audio-check") {
+    let devices = MicrophoneStore().devices
+    let mapped = devices.filter { AudioRecorder.deviceID(for: $0.id) != nil }
+    guard !devices.isEmpty, mapped.count == devices.count else {
+        fputs("Audio input discovery failed (\(mapped.count)/\(devices.count) mapped)\n", stderr)
+        exit(1)
+    }
+    print("Audio input discovery passed (\(devices.count) devices)")
     exit(0)
 }
 

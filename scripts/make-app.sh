@@ -37,8 +37,8 @@ cat > "$app_path/Contents/Info.plist" <<'PLIST'
     <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
     <key>CFBundleName</key><string>LocalDictationSpike</string>
     <key>CFBundlePackageType</key><string>APPL</string>
-    <key>CFBundleShortVersionString</key><string>0.2.0</string>
-    <key>CFBundleVersion</key><string>2</string>
+    <key>CFBundleShortVersionString</key><string>0.2.1</string>
+    <key>CFBundleVersion</key><string>3</string>
     <key>LSMinimumSystemVersion</key><string>14.0</string>
     <key>LSUIElement</key><true/>
     <key>NSMicrophoneUsageDescription</key><string>Запись речи для локального распознавания на этом Mac.</string>
@@ -54,5 +54,6 @@ codesign --verify --deep --strict "$app_path"
 mkdir -p "$PWD/dist"
 rm -rf "$destination"
 ditto --noextattr "$app_path" "$destination"
-codesign --verify "$destination"
+xattr -rc "$destination"
+codesign --verify --deep --strict "$destination"
 print "Готово: $destination"
