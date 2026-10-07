@@ -97,6 +97,7 @@ enum DictationTrigger: Codable, Equatable {
         token = NSEvent.addGlobalMonitorForEvents(matching: .flagsChanged) { [weak self] event in
             MainActor.assumeIsolated { self?.handle(event) }
         }
+        Diagnostics.record(token == nil ? "right-control.monitor.failed" : "right-control.monitor.started")
         return token != nil
     }
 
@@ -116,6 +117,7 @@ enum DictationTrigger: Codable, Equatable {
     }
 
     private func handle(_ event: NSEvent) {
+        if event.keyCode == 62 { Diagnostics.record("right-control.event") }
         accept(keyCode: event.keyCode,
                isPressed: event.modifierFlags.contains(.control),
                at: event.timestamp)
@@ -144,6 +146,7 @@ enum DictationTrigger: Codable, Equatable {
                 guard let self, case .pressing(_, _, let pending) = self.state,
                       pending == current, self.isDown else { return }
                 self.state = .holding
+                Diagnostics.record("right-control.hold")
                 self.onHoldStart?()
             }
         } else {
@@ -152,6 +155,7 @@ enum DictationTrigger: Codable, Equatable {
                 if now - startedAt <= 0.28 {
                     if isSecond {
                         state = .sticky
+                        Diagnostics.record("right-control.double-tap")
                         onStickyStart?()
                     } else {
                         state = .firstTap(now)

@@ -1,10 +1,12 @@
 import AppKit
+import ApplicationServices
 import SwiftUI
 
 struct TriggerSettingsView: View {
     @State private var trigger: DictationTrigger
     @State private var recordingShortcut = false
     @State private var errorText: String?
+    @State private var hasAccessibility = AXIsProcessTrusted()
     let apply: (DictationTrigger) -> String?
 
     init(trigger: DictationTrigger, apply: @escaping (DictationTrigger) -> String?) {
@@ -19,6 +21,23 @@ struct TriggerSettingsView: View {
                     .font(.title2.bold())
                 Text("Выберите, как начинать и останавливать запись в любом приложении.")
                     .foregroundStyle(.secondary)
+            }
+
+            if !hasAccessibility {
+                HStack(alignment: .center, spacing: 12) {
+                    Image(systemName: "hand.raised.fill")
+                        .foregroundStyle(.orange)
+                    Text("Правый Control ждёт разрешения «Универсальный доступ». Пока доступно сочетание ⌃⌥Пробел.")
+                        .font(.callout)
+                    Spacer()
+                    Button("Открыть настройки") {
+                        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
+                            NSWorkspace.shared.open(url)
+                        }
+                    }
+                }
+                .padding(12)
+                .background(.orange.opacity(0.10), in: RoundedRectangle(cornerRadius: 12))
             }
 
             option(isSelected: isShortcutSelected,
@@ -87,6 +106,9 @@ struct TriggerSettingsView: View {
         .padding(24)
         .frame(width: 610)
         .background(.regularMaterial)
+        .onReceive(Timer.publish(every: 1.5, on: .main, in: .common).autoconnect()) { _ in
+            hasAccessibility = AXIsProcessTrusted()
+        }
     }
 
     private var currentShortcut: DictationShortcut {

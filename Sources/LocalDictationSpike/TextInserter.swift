@@ -22,9 +22,23 @@ enum TextInserter {
         guard AXIsProcessTrusted() else { throw InsertError.permissionDenied }
         let system = AXUIElementCreateSystemWide()
         var value: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(system, kAXFocusedUIElementAttribute as CFString, &value) == .success,
-              let value else { throw InsertError.noFocusedElement }
-        let element = value as! AXUIElement
+        var element: AXUIElement?
+        if AXUIElementCopyAttributeValue(system, kAXFocusedUIElementAttribute as CFString, &value) == .success,
+           let value, CFGetTypeID(value) == AXUIElementGetTypeID() {
+            element = (value as! AXUIElement)
+        }
+        // Some IDEs expose the focused editor only through their application AX tree.
+        var focusedPID: pid_t = 0
+        let matchesTarget = element.map { AXUIElementGetPid($0, &focusedPID) == .success && focusedPID == expectedPID } ?? false
+        if !matchesTarget, let expectedPID {
+            let app = AXUIElementCreateApplication(expectedPID)
+            value = nil
+            if AXUIElementCopyAttributeValue(app, kAXFocusedUIElementAttribute as CFString, &value) == .success,
+               let value, CFGetTypeID(value) == AXUIElementGetTypeID() {
+                element = (value as! AXUIElement)
+            }
+        }
+        guard let element else { throw InsertError.noFocusedElement }
 
         // Never send text to a secure text field.
         var roleValue: CFTypeRef?

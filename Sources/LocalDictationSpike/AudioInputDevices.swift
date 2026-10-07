@@ -40,8 +40,14 @@ enum AudioInputDevices {
         let raw = UnsafeMutableRawPointer.allocate(byteCount: Int(size),
                                                    alignment: MemoryLayout<AudioBufferList>.alignment)
         defer { raw.deallocate() }
-        guard AudioObjectGetPropertyData(id, &address, 0, nil, &size, raw) == noErr else { return false }
-        let buffers = UnsafeMutableAudioBufferListPointer(raw.assumingMemoryBound(to: AudioBufferList.self))
+        let allocatedSize = size
+        guard AudioObjectGetPropertyData(id, &address, 0, nil, &size, raw) == noErr,
+              size <= allocatedSize else { return false }
+        let list = raw.assumingMemoryBound(to: AudioBufferList.self)
+        let headerSize = MemoryLayout<AudioBufferList>.offset(of: \.mBuffers) ?? 8
+        let maxBuffers = (Int(size) - headerSize) / MemoryLayout<AudioBuffer>.stride
+        guard Int(list.pointee.mNumberBuffers) <= maxBuffers else { return false }
+        let buffers = UnsafeMutableAudioBufferListPointer(list)
         return buffers.contains { $0.mNumberChannels > 0 }
     }
 

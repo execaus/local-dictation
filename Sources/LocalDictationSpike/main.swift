@@ -13,6 +13,7 @@ private let cancelHotKeyID: UInt32 = 2
     private var statusItem: NSStatusItem!
     private var actionItem: NSMenuItem!
     private var cancelItem: NSMenuItem!
+    private var retryInsertItem: NSMenuItem!
     private var eventHandler: EventHandlerRef?
     private var hotKey: EventHotKeyRef?
     private var cancelHotKey: EventHotKeyRef?
@@ -22,6 +23,7 @@ private let cancelHotKeyID: UInt32 = 2
     private var pendingRightControl = false
     private var settingsWindow: NSWindow?
     private var lastExternalPID: pid_t?
+    private var pendingText: String?
     private var state: State = .idle
     private var trigger: DictationTrigger = {
         guard let data = UserDefaults.standard.data(forKey: "dictationTrigger.v1"),
@@ -36,6 +38,7 @@ private let cancelHotKeyID: UInt32 = 2
     private let rightControlMonitor = DoubleRightControlMonitor()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        Diagnostics.record("launch")
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         statusItem.button?.image = NSImage(systemSymbolName: "waveform", accessibilityDescription: "Локальная диктовка")
         let menu = NSMenu()
@@ -44,9 +47,13 @@ private let cancelHotKeyID: UInt32 = 2
         cancelItem = NSMenuItem(title: "Отменить запись · ⌃⌥Esc", action: #selector(cancelRecording), keyEquivalent: "")
         cancelItem.isEnabled = false
         menu.addItem(cancelItem)
+        retryInsertItem = NSMenuItem(title: "Вставить готовый текст в выбранное поле", action: #selector(retryInsertion), keyEquivalent: "")
+        retryInsertItem.isEnabled = false
+        menu.addItem(retryInsertItem)
         menu.addItem(.separator())
         menu.addItem(NSMenuItem(title: "Настройки…", action: #selector(showSettings), keyEquivalent: ""))
         menu.addItem(NSMenuItem(title: "Разрешить Универсальный доступ…", action: #selector(requestAccessibility), keyEquivalent: ""))
+        menu.addItem(NSMenuItem(title: "Открыть журнал диагностики…", action: #selector(openDiagnostics), keyEquivalent: ""))
         menu.addItem(NSMenuItem(title: "Выход", action: #selector(quit), keyEquivalent: "q"))
         for item in menu.items { item.target = self }
         statusItem.menu = menu
@@ -89,7 +96,7 @@ private let cancelHotKeyID: UInt32 = 2
             if let fallbackError = installTrigger(trigger, persist: false) {
                 showError(NSError(domain: "LocalDictation", code: 1,
                                   userInfo: [NSLocalizedDescriptionKey: fallbackError]))
-            } else {
+            } else if !retryRightControl {
                 showError(NSError(domain: "LocalDictation", code: 1,
                                   userInfo: [NSLocalizedDescriptionKey: error + " Включено стандартное сочетание."]))
             }
@@ -245,10 +252,7 @@ private let cancelHotKeyID: UInt32 = 2
 
     private func beginRecording(mode: RecordingMode) {
         guard case .idle = state else { return }
-        guard let pid = targetApplicationPID() else {
-            showError(InsertError.noFocusedElement)
-            return
-        }
+        let pid = targetApplicationPID() ?? 0
         switch AVCaptureDevice.authorizationStatus(for: .audio) {
         case .authorized:
             startRecording(for: pid, mode: mode)
@@ -292,6 +296,7 @@ private let cancelHotKeyID: UInt32 = 2
         if mode == .hold && !rightControlMonitor.isHolding { return }
         if mode == .sticky && !rightControlMonitor.isSticky { return }
         do {
+            Diagnostics.record("recording.start")
             try recorder.start(microphoneUID: microphoneStore.selectedUID)
             state = .recording(pid, mode)
             cancelItem.isEnabled = true
@@ -299,6 +304,7 @@ private let cancelHotKeyID: UInt32 = 2
             updateActionTitle()
             statusItem.button?.image = NSImage(systemSymbolName: "record.circle.fill", accessibilityDescription: "Идёт запись")
         } catch {
+            Diagnostics.record("recording.start.error: \(type(of: error))")
             clearEscapeStopHotKey()
             rightControlMonitor.reset()
             showError(error)
@@ -307,6 +313,7 @@ private let cancelHotKeyID: UInt32 = 2
 
     private func stopRecording(for pid: pid_t) {
         do {
+            Diagnostics.record("recording.stop")
             let samples = try recorder.stop()
             state = .processing
             clearEscapeStopHotKey()
@@ -324,14 +331,17 @@ private let cancelHotKeyID: UInt32 = 2
                     self.statusItem.button?.image = NSImage(systemSymbolName: "waveform", accessibilityDescription: "Локальная диктовка")
                     switch result {
                     case .success(let rawText):
+                        Diagnostics.record("recognition.success")
                         let text = TermDictionary.apply(self.dictionaryStore.rules, to: rawText)
                         self.insertRecognizedText(text, into: pid)
                     case .failure(let error):
+                        Diagnostics.record("recognition.error: \(type(of: error))")
                         self.showError(error)
                     }
                 }
             }
         } catch {
+            Diagnostics.record("recording.stop.error: \(type(of: error))")
             state = .idle
             clearEscapeStopHotKey()
             cancelItem.isEnabled = false
@@ -343,22 +353,45 @@ private let cancelHotKeyID: UInt32 = 2
     }
 
     private func insertRecognizedText(_ text: String, into pid: pid_t) {
-        // Choosing a status-menu item can leave this accessory app frontmost.
-        // Restore the editor before checking its focused field and posting text.
-        if NSWorkspace.shared.frontmostApplication?.processIdentifier == ProcessInfo.processInfo.processIdentifier,
-           let target = NSRunningApplication(processIdentifier: pid) {
+        pendingText = text
+        retryInsertItem.isEnabled = true
+        // The field selected after recognition takes precedence over the app
+        // that was frontmost when recording began.
+        let frontmostPID = NSWorkspace.shared.frontmostApplication?.processIdentifier
+        if let frontmostPID, frontmostPID != ProcessInfo.processInfo.processIdentifier {
+            performInsertion(text, into: frontmostPID)
+        } else if let target = NSRunningApplication(processIdentifier: pid) {
             target.activate()
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self] in
                 self?.performInsertion(text, into: pid)
             }
         } else {
-            performInsertion(text, into: pid)
+            Diagnostics.record("insertion.no-target")
+            showError(InsertError.noFocusedElement, result: text)
         }
     }
 
     private func performInsertion(_ text: String, into pid: pid_t) {
-        do { try TextInserter.insert(text, expectedPID: pid) }
-        catch { showError(error, result: text) }
+        do {
+            Diagnostics.record("insertion.attempt")
+            try TextInserter.insert(text, expectedPID: pid)
+            pendingText = nil
+            retryInsertItem.isEnabled = false
+            Diagnostics.record("insertion.success")
+        } catch {
+            Diagnostics.record("insertion.error: \(error.localizedDescription)")
+            showError(error, result: text)
+        }
+    }
+
+    @objc private func retryInsertion() {
+        guard let text = pendingText else { return }
+        guard let pid = targetApplicationPID() else {
+            showError(InsertError.noFocusedElement, result: text)
+            return
+        }
+        Diagnostics.record("insertion.retry")
+        insertRecognizedText(text, into: pid)
     }
 
     @objc private func cancelRecording() {
@@ -398,6 +431,7 @@ private let cancelHotKeyID: UInt32 = 2
                 NSWorkspace.shared.open(url)
             }
         } else if let result {
+            alert.informativeText += "\n\nТекст сохранён. Выберите поле ввода и нажмите «Вставить готовый текст» в меню приложения."
             alert.addButton(withTitle: "Копировать текст")
             alert.addButton(withTitle: "Закрыть")
             if alert.runModal() == .alertFirstButtonReturn {
@@ -414,8 +448,12 @@ private let cancelHotKeyID: UInt32 = 2
         _ = AXIsProcessTrustedWithOptions(options)
     }
 
+    @objc private func openDiagnostics() { Diagnostics.open() }
+
     @objc private func showSettings() {
+        Diagnostics.record("settings.open.begin")
         if settingsWindow == nil {
+            Diagnostics.record("settings.window.create")
             let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 720, height: 490),
                                   styleMask: [.titled, .closable, .miniaturizable, .fullSizeContentView],
                                   backing: .buffered, defer: false)
@@ -430,14 +468,18 @@ private let cancelHotKeyID: UInt32 = 2
             window.center()
             settingsWindow = window
         }
+        Diagnostics.record("settings.microphones.refresh.begin")
         microphoneStore.refresh()
+        Diagnostics.record("settings.microphones.refresh.end")
         NSApplication.shared.activate(ignoringOtherApps: true)
         settingsWindow?.makeKeyAndOrderFront(nil)
+        Diagnostics.record("settings.open.end")
     }
 
     @objc private func quit() { NSApplication.shared.terminate(nil) }
 
     func applicationWillTerminate(_ notification: Notification) {
+        Diagnostics.record("terminate")
         accessibilityRetryTimer?.invalidate()
         if case .recording = state { recorder.cancel() }
         statusPanel.hide()
@@ -519,6 +561,24 @@ if CommandLine.arguments.contains("--audio-check") {
         exit(1)
     }
     print("Audio input discovery passed (\(devices.count) devices)")
+    exit(0)
+}
+
+if CommandLine.arguments.contains("--settings-check") {
+    let app = NSApplication.shared
+    app.setActivationPolicy(.accessory)
+    let microphones = MicrophoneStore()
+    let dictionary = DictionaryStore()
+    for _ in 0..<30 {
+        microphones.refresh()
+        let view = NSHostingView(rootView: SettingsView(microphoneStore: microphones,
+                                                       dictionaryStore: dictionary,
+                                                       trigger: .default,
+                                                       applyTrigger: { _ in nil }))
+        view.frame = NSRect(x: 0, y: 0, width: 720, height: 490)
+        view.layoutSubtreeIfNeeded()
+    }
+    print("Settings creation and microphone refresh passed")
     exit(0)
 }
 
