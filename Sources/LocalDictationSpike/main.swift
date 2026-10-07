@@ -8,31 +8,42 @@ private let hotKeyID: UInt32 = 1
 private let cancelHotKeyID: UInt32 = 2
 
 @MainActor final class AppDelegate: NSObject, NSApplicationDelegate {
-    private enum State { case idle, recording(pid_t), processing }
+    private enum RecordingMode { case toggle, hold, sticky }
+    private enum State { case idle, recording(pid_t, RecordingMode), processing }
     private var statusItem: NSStatusItem!
     private var actionItem: NSMenuItem!
     private var cancelItem: NSMenuItem!
     private var eventHandler: EventHandlerRef?
     private var hotKey: EventHotKeyRef?
     private var cancelHotKey: EventHotKeyRef?
+    private var escapeStopHotKey: EventHotKeyRef?
+    private var escapeStopMonitor: Any?
     private var dictionaryWindow: NSWindow?
+    private var triggerWindow: NSWindow?
     private var state: State = .idle
+    private var trigger: DictationTrigger = {
+        guard let data = UserDefaults.standard.data(forKey: "dictationTrigger.v1"),
+              let saved = try? JSONDecoder().decode(DictationTrigger.self, from: data) else { return .default }
+        return saved
+    }()
     private let recorder = AudioRecorder()
     private let recognizer = LocalRecognizer()
     private let dictionaryStore = DictionaryStore()
     private let statusPanel = StatusPanel()
+    private let rightControlMonitor = DoubleRightControlMonitor()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         statusItem.button?.image = NSImage(systemSymbolName: "waveform", accessibilityDescription: "Локальная диктовка")
         let menu = NSMenu()
-        actionItem = NSMenuItem(title: "Начать диктовку · ⌃⌥Пробел", action: #selector(toggleRecording), keyEquivalent: "")
+        actionItem = NSMenuItem(title: "Начать диктовку · \(trigger.title)", action: #selector(toggleRecording), keyEquivalent: "")
         menu.addItem(actionItem)
         cancelItem = NSMenuItem(title: "Отменить запись · ⌃⌥Esc", action: #selector(cancelRecording), keyEquivalent: "")
         cancelItem.isEnabled = false
         menu.addItem(cancelItem)
         menu.addItem(.separator())
         menu.addItem(NSMenuItem(title: "Словарь терминов…", action: #selector(showDictionary), keyEquivalent: ""))
+        menu.addItem(NSMenuItem(title: "Управление клавишами…", action: #selector(showTriggerSettings), keyEquivalent: ""))
         menu.addItem(NSMenuItem(title: "Разрешить Универсальный доступ…", action: #selector(requestAccessibility), keyEquivalent: ""))
         menu.addItem(NSMenuItem(title: "Выход", action: #selector(quit), keyEquivalent: "q"))
         for item in menu.items { item.target = self }
@@ -56,64 +67,199 @@ private let cancelHotKeyID: UInt32 = 2
             MainActor.assumeIsolated {
                 if id.id == hotKeyID { delegate.toggleRecording() }
                 if id.id == cancelHotKeyID { delegate.cancelRecording() }
+                if id.id == 3 { delegate.stopStickyRecording() }
             }
             return noErr
         }
         InstallEventHandler(GetApplicationEventTarget(), handler, 1, &eventType,
                             Unmanaged.passUnretained(self).toOpaque(), &eventHandler)
-        // Space key (49), Control + Option. Works while another application is focused.
-        RegisterEventHotKey(49, UInt32(controlKey | optionKey), EventHotKeyID(signature: hotKeySignature, id: hotKeyID),
-                            GetApplicationEventTarget(), 0, &hotKey)
         RegisterEventHotKey(53, UInt32(controlKey | optionKey), EventHotKeyID(signature: hotKeySignature, id: cancelHotKeyID),
                             GetApplicationEventTarget(), 0, &cancelHotKey)
+        if let error = installTrigger(trigger, persist: false) {
+            trigger = .shortcut(.standard)
+            if let fallbackError = installTrigger(trigger, persist: false) {
+                showError(NSError(domain: "LocalDictation", code: 1,
+                                  userInfo: [NSLocalizedDescriptionKey: fallbackError]))
+            } else {
+                showError(NSError(domain: "LocalDictation", code: 1,
+                                  userInfo: [NSLocalizedDescriptionKey: error + " Включено стандартное сочетание."]))
+            }
+        }
+    }
+
+    private func installTrigger(_ candidate: DictationTrigger, persist: Bool) -> String? {
+        guard case .idle = state else {
+            return "Измените способ запуска после завершения текущей диктовки."
+        }
+        switch candidate {
+        case .shortcut(let shortcut):
+            if shortcut.keyCode == 53 && shortcut.modifiers == UInt32(controlKey | optionKey) {
+                return "⌃⌥Esc зарезервировано для отмены записи. Выберите другую клавишу."
+            }
+            var replacement: EventHotKeyRef?
+            let status = RegisterEventHotKey(shortcut.keyCode, shortcut.modifiers,
+                                             EventHotKeyID(signature: hotKeySignature, id: hotKeyID),
+                                             GetApplicationEventTarget(), 0, &replacement)
+            guard status == noErr, let replacement else {
+                return "Это сочетание занято macOS или другим приложением. Выберите другое."
+            }
+            if let hotKey { UnregisterEventHotKey(hotKey) }
+            hotKey = replacement
+            rightControlMonitor.stop()
+        case .doubleRightControl:
+            guard AXIsProcessTrusted() else {
+                return "Для двойного правого Control разрешите приложению доступ к «Универсальному доступу»."
+            }
+            guard rightControlMonitor.start(onHoldStart: { [weak self] in self?.beginRecording(mode: .hold) },
+                                            onHoldEnd: { [weak self] in self?.stopHoldRecording() },
+                                            onStickyStart: { [weak self] in self?.beginStickyRecording() }) else {
+                return "Не удалось отслеживать правый Control. Проверьте разрешение «Универсальный доступ»."
+            }
+            if let hotKey { UnregisterEventHotKey(hotKey) }
+            hotKey = nil
+        }
+        trigger = candidate
+        if persist, let data = try? JSONEncoder().encode(candidate) {
+            UserDefaults.standard.set(data, forKey: "dictationTrigger.v1")
+        }
+        updateActionTitle()
+        return nil
+    }
+
+    private func updateActionTitle() {
+        switch state {
+        case .idle:
+            actionItem.title = "Начать диктовку · \(trigger.title)"
+        case .recording(_, .toggle):
+            if case .shortcut = trigger {
+                actionItem.title = "Остановить диктовку · \(trigger.title)"
+            } else {
+                actionItem.title = "Остановить диктовку"
+            }
+        case .recording(_, .hold):
+            actionItem.title = "Отпустите правый Control для остановки"
+        case .recording(_, .sticky):
+            actionItem.title = "Остановить диктовку · Esc"
+        case .processing:
+            actionItem.title = "Распознавание…"
+        }
+    }
+
+    private func beginStickyRecording() {
+        guard case .idle = state else {
+            rightControlMonitor.reset()
+            return
+        }
+        var replacement: EventHotKeyRef?
+        let status = RegisterEventHotKey(53, 0, EventHotKeyID(signature: hotKeySignature, id: 3),
+                                         GetApplicationEventTarget(), 0, &replacement)
+        if status == noErr, let replacement {
+            escapeStopHotKey = replacement
+        } else {
+            escapeStopMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] event in
+                guard event.keyCode == 53 else { return }
+                MainActor.assumeIsolated { self?.stopStickyRecording() }
+            }
+        }
+        guard escapeStopHotKey != nil || escapeStopMonitor != nil else {
+            rightControlMonitor.reset()
+            showError(NSError(domain: "LocalDictation", code: 2, userInfo: [
+                NSLocalizedDescriptionKey: "Не удалось отслеживать Esc для остановки записи. Проверьте «Универсальный доступ»."
+            ]))
+            return
+        }
+        beginRecording(mode: .sticky)
+    }
+
+    private func stopStickyRecording() {
+        guard case .recording(let pid, .sticky) = state else {
+            clearEscapeStopHotKey()
+            rightControlMonitor.reset()
+            return
+        }
+        rightControlMonitor.reset()
+        stopRecording(for: pid)
+    }
+
+    private func stopHoldRecording() {
+        guard case .recording(let pid, .hold) = state else { return }
+        stopRecording(for: pid)
+    }
+
+    private func clearEscapeStopHotKey() {
+        if let escapeStopHotKey { UnregisterEventHotKey(escapeStopHotKey) }
+        escapeStopHotKey = nil
+        if let escapeStopMonitor { NSEvent.removeMonitor(escapeStopMonitor) }
+        escapeStopMonitor = nil
     }
 
     @objc private func toggleRecording() {
         switch state {
         case .idle:
-            guard let pid = NSWorkspace.shared.frontmostApplication?.processIdentifier else {
-                showError(InsertError.noFocusedElement)
-                return
-            }
-            switch AVCaptureDevice.authorizationStatus(for: .audio) {
-            case .authorized:
-                startRecording(for: pid)
-            case .notDetermined:
-                AVCaptureDevice.requestAccess(for: .audio) { [weak self] granted in
-                    DispatchQueue.main.async {
-                        guard let self else { return }
-                        if granted { self.startRecording(for: pid) }
-                        else { self.showError(RecordingError.microphoneDenied) }
-                    }
-                }
-            default:
-                showError(RecordingError.microphoneDenied)
-            }
-        case .recording(let pid):
+            beginRecording(mode: .toggle)
+        case .recording(let pid, _):
+            rightControlMonitor.reset()
             stopRecording(for: pid)
         case .processing:
             break
         }
     }
 
-    private func startRecording(for pid: pid_t) {
+    private func beginRecording(mode: RecordingMode) {
+        guard case .idle = state else { return }
+        guard let pid = NSWorkspace.shared.frontmostApplication?.processIdentifier else {
+            showError(InsertError.noFocusedElement)
+            return
+        }
+        switch AVCaptureDevice.authorizationStatus(for: .audio) {
+        case .authorized:
+            startRecording(for: pid, mode: mode)
+        case .notDetermined:
+            AVCaptureDevice.requestAccess(for: .audio) { [weak self] granted in
+                DispatchQueue.main.async {
+                    guard let self else { return }
+                    if granted {
+                        self.startRecording(for: pid, mode: mode)
+                    } else {
+                        self.clearEscapeStopHotKey()
+                        self.rightControlMonitor.reset()
+                        self.showError(RecordingError.microphoneDenied)
+                    }
+                }
+            }
+        default:
+            clearEscapeStopHotKey()
+            rightControlMonitor.reset()
+            showError(RecordingError.microphoneDenied)
+        }
+    }
+
+    private func startRecording(for pid: pid_t, mode: RecordingMode) {
+        guard case .idle = state else { return }
+        if mode == .hold && !rightControlMonitor.isHolding { return }
+        if mode == .sticky && !rightControlMonitor.isSticky { return }
         do {
             try recorder.start()
-            state = .recording(pid)
+            state = .recording(pid, mode)
             cancelItem.isEnabled = true
             statusPanel.showRecording()
-            actionItem.title = "Остановить диктовку · ⌃⌥Пробел"
+            updateActionTitle()
             statusItem.button?.image = NSImage(systemSymbolName: "record.circle.fill", accessibilityDescription: "Идёт запись")
-        } catch { showError(error) }
+        } catch {
+            clearEscapeStopHotKey()
+            rightControlMonitor.reset()
+            showError(error)
+        }
     }
 
     private func stopRecording(for pid: pid_t) {
         do {
             let samples = try recorder.stop()
             state = .processing
+            clearEscapeStopHotKey()
             cancelItem.isEnabled = false
             statusPanel.showProcessing()
-            actionItem.title = "Распознавание…"
+            updateActionTitle()
             statusItem.button?.image = NSImage(systemSymbolName: "hourglass", accessibilityDescription: "Распознавание")
             let prompt = dictionaryStore.entries.map(\.written).joined(separator: ", ")
             recognizer.transcribe(samples, prompt: prompt) { [weak self] result in
@@ -122,7 +268,7 @@ private let cancelHotKeyID: UInt32 = 2
                     self.state = .idle
                     self.cancelItem.isEnabled = false
                     self.statusPanel.hide()
-                    self.actionItem.title = "Начать диктовку · ⌃⌥Пробел"
+                    self.updateActionTitle()
                     self.statusItem.button?.image = NSImage(systemSymbolName: "waveform", accessibilityDescription: "Локальная диктовка")
                     switch result {
                     case .success(let rawText):
@@ -136,9 +282,10 @@ private let cancelHotKeyID: UInt32 = 2
             }
         } catch {
             state = .idle
+            clearEscapeStopHotKey()
             cancelItem.isEnabled = false
             statusPanel.hide()
-            actionItem.title = "Начать диктовку · ⌃⌥Пробел"
+            updateActionTitle()
             statusItem.button?.image = NSImage(systemSymbolName: "waveform", accessibilityDescription: "Локальная диктовка")
             showError(error)
         }
@@ -148,14 +295,18 @@ private let cancelHotKeyID: UInt32 = 2
         guard case .recording = state else { return }
         recorder.cancel()
         state = .idle
+        clearEscapeStopHotKey()
+        rightControlMonitor.reset()
         cancelItem.isEnabled = false
-        actionItem.title = "Начать диктовку · ⌃⌥Пробел"
+        updateActionTitle()
         statusItem.button?.image = NSImage(systemSymbolName: "waveform", accessibilityDescription: "Локальная диктовка")
         statusPanel.hide()
     }
 
     @objc private func handleSessionInterruption(_ notification: Notification) {
         cancelRecording()
+        clearEscapeStopHotKey()
+        rightControlMonitor.reset()
     }
 
     private func showError(_ error: Error, result: String? = nil) {
@@ -208,13 +359,32 @@ private let cancelHotKeyID: UInt32 = 2
         dictionaryWindow?.makeKeyAndOrderFront(nil)
     }
 
+    @objc private func showTriggerSettings() {
+        if triggerWindow == nil {
+            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 610, height: 450),
+                                  styleMask: [.titled, .closable, .miniaturizable, .fullSizeContentView],
+                                  backing: .buffered, defer: false)
+            window.title = "Управление клавишами"
+            window.titlebarAppearsTransparent = true
+            window.contentView = NSHostingView(rootView: TriggerSettingsView(trigger: trigger) { [weak self] candidate in
+                self?.installTrigger(candidate, persist: true)
+            })
+            window.center()
+            triggerWindow = window
+        }
+        NSApplication.shared.activate(ignoringOtherApps: true)
+        triggerWindow?.makeKeyAndOrderFront(nil)
+    }
+
     @objc private func quit() { NSApplication.shared.terminate(nil) }
 
     func applicationWillTerminate(_ notification: Notification) {
         if case .recording = state { recorder.cancel() }
         statusPanel.hide()
+        rightControlMonitor.stop()
         if let hotKey { UnregisterEventHotKey(hotKey) }
         if let cancelHotKey { UnregisterEventHotKey(cancelHotKey) }
+        clearEscapeStopHotKey()
         if let eventHandler { RemoveEventHandler(eventHandler) }
         NSWorkspace.shared.notificationCenter.removeObserver(self)
     }
@@ -230,7 +400,45 @@ if CommandLine.arguments.contains("--self-check") {
         fputs("Dictionary self-check failed: \(actual)\n", stderr)
         exit(1)
     }
-    print("Dictionary self-check passed")
+    let gesture = DoubleRightControlMonitor()
+    gesture.accept(keyCode: 62, isPressed: true, at: 1.0)
+    gesture.accept(keyCode: 62, isPressed: false, at: 1.08)
+    gesture.accept(keyCode: 62, isPressed: true, at: 1.20)
+    gesture.accept(keyCode: 62, isPressed: false, at: 1.28)
+    guard gesture.isSticky else {
+        fputs("Double Control self-check failed\n", stderr)
+        exit(1)
+    }
+    gesture.reset()
+    gesture.accept(keyCode: 62, isPressed: true, at: 2.0)
+    RunLoop.main.run(until: Date().addingTimeInterval(0.32))
+    guard gesture.isHolding else {
+        fputs("Control hold self-check failed\n", stderr)
+        exit(1)
+    }
+    gesture.accept(keyCode: 62, isPressed: false, at: 2.40)
+    guard !gesture.isHolding else {
+        fputs("Control release self-check failed\n", stderr)
+        exit(1)
+    }
+    gesture.accept(keyCode: 62, isPressed: true, at: 3.0)
+    gesture.accept(keyCode: 62, isPressed: false, at: 3.08)
+    gesture.accept(keyCode: 58, isPressed: true, at: 3.10)
+    gesture.accept(keyCode: 62, isPressed: true, at: 3.20)
+    gesture.accept(keyCode: 62, isPressed: false, at: 3.28)
+    guard !gesture.isSticky else {
+        fputs("Interrupted double Control self-check failed\n", stderr)
+        exit(1)
+    }
+    let keyEvent = NSEvent.keyEvent(with: .keyDown, location: .zero,
+                                    modifierFlags: [.control, .option], timestamp: 0,
+                                    windowNumber: 0, context: nil, characters: " ",
+                                    charactersIgnoringModifiers: " ", isARepeat: false, keyCode: 49)
+    guard let keyEvent, DictationShortcut(event: keyEvent) == .standard else {
+        fputs("Shortcut capture self-check failed\n", stderr)
+        exit(1)
+    }
+    print("Dictionary and keyboard self-check passed")
     exit(0)
 }
 

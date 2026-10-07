@@ -96,6 +96,6 @@ private struct StatusPill: View {
 
     private func elapsed(since start: Date, at now: Date) -> String {
         let seconds = max(0, Int(now.timeIntervalSince(start)))
-        return String(format: "%02d:%02d · ⌃⌥Пробел — стоп", seconds / 60, seconds % 60)
+        return String(format: "%02d:%02d", seconds / 60, seconds % 60)
     }
 }
