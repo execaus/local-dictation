@@ -1,0 +1,63 @@
+import AppKit
+import ApplicationServices
+
+enum InsertError: LocalizedError {
+    case permissionDenied
+    case noFocusedElement
+    case unsupportedField
+    case eventCreationFailed
+
+    var errorDescription: String? {
+        switch self {
+        case .permissionDenied: "Разрешите доступ в «Универсальном доступе» для проверки вставки."
+        case .noFocusedElement: "Не удалось определить активное поле ввода."
+        case .unsupportedField: "Это поле не поддерживает прямую вставку через Accessibility."
+        case .eventCreationFailed: "Не удалось создать событие ввода текста."
+        }
+    }
+}
+
+enum TextInserter {
+    static func insert(_ text: String, expectedPID: pid_t? = nil) throws {
+        guard AXIsProcessTrusted() else { throw InsertError.permissionDenied }
+        let system = AXUIElementCreateSystemWide()
+        var value: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(system, kAXFocusedUIElementAttribute as CFString, &value) == .success,
+              let value else { throw InsertError.noFocusedElement }
+        let element = value as! AXUIElement
+
+        // Never send text to a secure text field.
+        var roleValue: CFTypeRef?
+        var subroleValue: CFTypeRef?
+        _ = AXUIElementCopyAttributeValue(element, kAXRoleAttribute as CFString, &roleValue)
+        _ = AXUIElementCopyAttributeValue(element, kAXSubroleAttribute as CFString, &subroleValue)
+        if (roleValue as? String) == "AXSecureTextField" ||
+           (subroleValue as? String) == "AXSecureTextField" {
+            throw InsertError.unsupportedField
+        }
+
+        var pid: pid_t = 0
+        guard AXUIElementGetPid(element, &pid) == .success, pid > 0 else {
+            throw InsertError.noFocusedElement
+        }
+        if let expectedPID, pid != expectedPID {
+            throw InsertError.noFocusedElement
+        }
+
+        // The editor must process an input event itself. Setting AXSelectedText can
+        // change the rendered text without updating an IDE editor's document model.
+        guard let source = CGEventSource(stateID: .privateState),
+              let keyDown = CGEvent(keyboardEventSource: source, virtualKey: 0, keyDown: true),
+              let keyUp = CGEvent(keyboardEventSource: source, virtualKey: 0, keyDown: false) else {
+            throw InsertError.eventCreationFailed
+        }
+        let units = Array(text.utf16)
+        units.withUnsafeBufferPointer { buffer in
+            keyDown.keyboardSetUnicodeString(stringLength: buffer.count, unicodeString: buffer.baseAddress)
+        }
+        keyDown.flags = []
+        keyUp.flags = []
+        keyDown.postToPid(pid)
+        keyUp.postToPid(pid)
+    }
+}
