@@ -1,8 +1,27 @@
-<?xml version="1.0" standalone="yes"?><!-- sparkle-sign-warning:
+<?xml version="1.0" standalone="yes"?>
+<!-- sparkle-sign-warning:
 IMPORTANT: This file was signed by Sparkle. Any modifications to this file requires re-signing this file with generate_appcast or sign_update! The signed signature will be embedded at the end of this file.
---><rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0">
+-->
+<rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0">
     <channel>
         <title>LocalDictationSpike</title>
+        <item>
+            <title>0.2.5</title>
+            <pubDate>Thu, 08 Oct 2026 15:17:17 +0300</pubDate>
+            <sparkle:version>7</sparkle:version>
+            <sparkle:shortVersionString>0.2.5</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
+            <description sparkle:format="markdown"><![CDATA[# Local Dictation 0.2.5
+
+- После запуска записи двойным нажатием правой Option одно нажатие той же клавиши завершает запись и запускает локальное распознавание. Esc по-прежнему отменяет запись без вставки.
+- В разделе «Общие» настроек показана версия приложения и находятся кнопки обновления и открытия «Универсального доступа».
+- У приложения появилась новая иконка: звуковая волна на полупрозрачной плитке с индикатором записи. Она видна в Finder и в сведениях о приложении.
+
+Диктовка остаётся локальной. Проверка обновлений обращается к GitHub только по нажатию кнопки в настройках. Архив и лента обновлений подписаны отдельно; закрытый ключ остаётся в локальной Связке ключей Mac сборки.
+]]></description>
+            <enclosure url="https://github.com/execaus/local-dictation/releases/download/v0.2.5/LocalDictation-0.2.5-macos-arm64.zip" length="537782799" type="application/octet-stream" sparkle:edSignature="JpbW/X+eim+SHeQaQ+P58gncALx0dSIn0YNmQ/XCYC2aGL6KebfWwKg/C0r082IvjpDGgUm+a0CKrKA4qKmvDQ=="/>
+        </item>
         <item>
             <title>0.2.4</title>
             <pubDate>Thu, 08 Oct 2026 14:45:54 +0300</pubDate>
@@ -23,10 +42,11 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
 
 Для запасной вставки нужно заранее поставить курсор в нужное поле: если приложение не показывает поле через Accessibility, его тип проверить невозможно. Сборка подписана локально (ad hoc), без нотарификации Apple. Закройте прежнюю копию и установите новую из архива. Контрольная сумма архива находится в `SHA256SUMS`.
 ]]></description>
-            <enclosure url="https://github.com/execaus/local-dictation/releases/download/v0.2.4/LocalDictation-0.2.4-macos-arm64.zip" length="536300962" type="application/octet-stream" sparkle:edSignature="M9udlBM+at3s87VV6akVHGqgvSZ9A1u936dzv7DhPBBCMNavN/K9mQI1HYUBzd9OXBTW9Bl7z9tllMb6AbFpDQ=="></enclosure>
+            <enclosure url="https://github.com/execaus/local-dictation/releases/download/v0.2.4/LocalDictation-0.2.4-macos-arm64.zip" length="536300962" type="application/octet-stream" sparkle:edSignature="M9udlBM+at3s87VV6akVHGqgvSZ9A1u936dzv7DhPBBCMNavN/K9mQI1HYUBzd9OXBTW9Bl7z9tllMb6AbFpDQ=="/>
         </item>
     </channel>
-</rss><!-- sparkle-signatures:
-edSignature: +6BtKhdOEyA2E/pa/Qlr5k0V8kHg6nNnZd95yf3nUJ3LFvz8tXspFY6QPy1OfjmvCaUzsHhER0TZn4CA4cOKCw==
-length: 4036
+</rss>
+<!-- sparkle-signatures:
+edSignature: GJC26pkuvTeLv3A7jYvE5K90toc0YpEBPATK7YJDlabdtNAbMOy0w+gkvVz4CA+D/MBUMYav0Sa/voxZyuJdCA==
+length: 6039
 -->

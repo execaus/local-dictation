@@ -4,5 +4,6 @@
 dist/
 .idea/
 Resources/*.bin
+Resources/AppIcon.iconset/
 Vendor/**/dSYMs/
 release/*.zip

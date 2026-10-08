@@ -56,15 +56,9 @@ private let cancelHotKeyID: UInt32 = 2
         menu.addItem(retryInsertItem)
         menu.addItem(.separator())
         menu.addItem(NSMenuItem(title: "Настройки…", action: #selector(showSettings), keyEquivalent: ""))
-        let checkUpdatesItem = NSMenuItem(title: "Проверить и установить обновление…",
-                                          action: #selector(SPUStandardUpdaterController.checkForUpdates(_:)),
-                                          keyEquivalent: "")
-        menu.addItem(checkUpdatesItem)
-        menu.addItem(NSMenuItem(title: "Разрешить Универсальный доступ…", action: #selector(requestAccessibility), keyEquivalent: ""))
         menu.addItem(NSMenuItem(title: "Открыть журнал диагностики…", action: #selector(openDiagnostics), keyEquivalent: ""))
         menu.addItem(NSMenuItem(title: "Выход", action: #selector(quit), keyEquivalent: "q"))
         for item in menu.items { item.target = self }
-        checkUpdatesItem.target = updaterController
         statusItem.menu = menu
         let currentPID = NSWorkspace.shared.frontmostApplication?.processIdentifier
         if let currentPID, currentPID != ProcessInfo.processInfo.processIdentifier {
@@ -194,7 +188,7 @@ private let cancelHotKeyID: UInt32 = 2
         case .recording(_, .hold):
             actionItem.title = "Отпустите правую Option для остановки"
         case .recording(_, .sticky):
-            actionItem.title = "Остановить и распознать · правая Option × 2"
+            actionItem.title = "Остановить и распознать · правая Option"
         case .processing:
             actionItem.title = "Распознавание…"
         }
@@ -452,8 +446,17 @@ private let cancelHotKeyID: UInt32 = 2
     }
 
     @objc private func requestAccessibility() {
+        settingsWindow?.orderOut(nil)
         let options = ["AXTrustedCheckOptionPrompt": true] as CFDictionary
         _ = AXIsProcessTrustedWithOptions(options)
+        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
+            NSWorkspace.shared.open(url)
+        }
+    }
+
+    private func checkForUpdates() {
+        settingsWindow?.orderOut(nil)
+        updaterController.checkForUpdates(nil)
     }
 
     @objc private func openDiagnostics() { Diagnostics.open() }
@@ -475,6 +478,10 @@ private let cancelHotKeyID: UInt32 = 2
                                                                       trigger: trigger,
                                                                       applyTrigger: { [weak self] candidate in
                 self?.installTrigger(candidate, persist: true)
+            }, checkForUpdates: { [weak self] in
+                self?.checkForUpdates()
+            }, requestAccessibility: { [weak self] in
+                self?.requestAccessibility()
             }))
             window.center()
             settingsWindow = window
@@ -550,10 +557,8 @@ if CommandLine.arguments.contains("--self-check") {
     }
     gesture.accept(keyCode: 61, isPressed: true, at: 1.50)
     gesture.accept(keyCode: 61, isPressed: false, at: 1.58)
-    gesture.accept(keyCode: 61, isPressed: true, at: 1.70)
-    gesture.accept(keyCode: 61, isPressed: false, at: 1.78)
     guard !gesture.isSticky else {
-        fputs("Double Option stop self-check failed\n", stderr)
+        fputs("Single Option stop self-check failed\n", stderr)
         exit(1)
     }
     gesture.reset()
@@ -624,7 +629,9 @@ if CommandLine.arguments.contains("--settings-check") {
         window.contentView = NSHostingView(rootView: SettingsView(microphoneStore: microphones,
                                                                   dictionaryStore: dictionary,
                                                                   trigger: .default,
-                                                                  applyTrigger: { _ in nil }))
+                                                                  applyTrigger: { _ in nil },
+                                                                  checkForUpdates: {},
+                                                                  requestAccessibility: {}))
         window.contentView?.layoutSubtreeIfNeeded()
         window.close()
     }

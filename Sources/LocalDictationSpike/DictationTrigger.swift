@@ -67,8 +67,7 @@ enum DictationTrigger: Codable, Equatable {
         case pressing(TimeInterval, Bool, Int)
         case holding
         case sticky
-        case stickyPressing(TimeInterval, Bool)
-        case stickyFirstTap(TimeInterval)
+        case stickyPressing
     }
 
     private var globalToken: Any?
@@ -89,7 +88,6 @@ enum DictationTrigger: Codable, Equatable {
     var isSticky: Bool {
         if case .sticky = state { return true }
         if case .stickyPressing = state { return true }
-        if case .stickyFirstTap = state { return true }
         return false
     }
 
@@ -144,18 +142,13 @@ enum DictationTrigger: Codable, Equatable {
         guard keyCode == UInt16(kVK_RightOption) else {
             if case .firstTap = state { state = .ready }
             if case .pressing = state { reset() }
-            if case .stickyFirstTap = state { state = .sticky }
             return
         }
         guard isPressed != isDown else { return }
         isDown = isPressed
         if isPressed {
             if case .sticky = state {
-                state = .stickyPressing(now, false)
-                return
-            }
-            if case .stickyFirstTap(let releasedAt) = state {
-                state = .stickyPressing(now, now - releasedAt <= 0.42)
+                state = .stickyPressing
                 return
             }
             let isSecond: Bool
@@ -176,18 +169,10 @@ enum DictationTrigger: Codable, Equatable {
             }
         } else {
             switch state {
-            case .stickyPressing(let startedAt, let isSecond):
-                if now - startedAt <= 0.28 {
-                    if isSecond {
-                        state = .ready
-                        Diagnostics.record("right-option.sticky-stop")
-                        onStickyEnd?()
-                    } else {
-                        state = .stickyFirstTap(now)
-                    }
-                } else {
-                    state = .sticky
-                }
+            case .stickyPressing:
+                state = .ready
+                Diagnostics.record("right-option.sticky-stop")
+                onStickyEnd?()
             case .pressing(let startedAt, let isSecond, _):
                 if now - startedAt <= 0.28 {
                     if isSecond {

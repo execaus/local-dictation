@@ -1,18 +1,24 @@
 import SwiftUI
 
 private enum SettingsSection: Hashable {
-    case microphone, keyboard, dictionary
+    case general, microphone, keyboard, dictionary
 }
 
 struct SettingsView: View {
-    @State private var section: SettingsSection = .microphone
+    @State private var section: SettingsSection = .general
     @ObservedObject var microphoneStore: MicrophoneStore
     @ObservedObject var dictionaryStore: DictionaryStore
     let trigger: DictationTrigger
     let applyTrigger: (DictationTrigger) -> String?
+    let checkForUpdates: () -> Void
+    let requestAccessibility: () -> Void
 
     var body: some View {
         TabView(selection: $section) {
+            GeneralSettingsView(checkForUpdates: checkForUpdates,
+                                requestAccessibility: requestAccessibility)
+                .tabItem { Label("Общие", systemImage: "gearshape.fill") }
+                .tag(SettingsSection.general)
             MicrophoneSettingsView(store: microphoneStore)
                 .tabItem { Label("Микрофон", systemImage: "mic.fill") }
                 .tag(SettingsSection.microphone)
@@ -24,6 +30,54 @@ struct SettingsView: View {
                 .tag(SettingsSection.dictionary)
         }
         .frame(width: 720, height: 490)
+    }
+}
+
+private struct GeneralSettingsView: View {
+    let checkForUpdates: () -> Void
+    let requestAccessibility: () -> Void
+
+    private var version: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "Сборка разработчика"
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 20) {
+            VStack(alignment: .leading, spacing: 5) {
+                Label("Локальная диктовка", systemImage: "waveform")
+                    .font(.title2.bold())
+                Text("Версия \(version)")
+                    .foregroundStyle(.secondary)
+            }
+
+            VStack(alignment: .leading, spacing: 16) {
+                Label("Обновления", systemImage: "arrow.triangle.2.circlepath")
+                    .font(.headline)
+                Text("Проверка GitHub запускается только по нажатию кнопки. Диктовка остаётся локальной.")
+                    .foregroundStyle(.secondary)
+                Button("Проверить и установить обновление…", action: checkForUpdates)
+                    .buttonStyle(.borderedProminent)
+            }
+            .padding(16)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+
+            VStack(alignment: .leading, spacing: 16) {
+                Label("Универсальный доступ", systemImage: "hand.raised")
+                    .font(.headline)
+                Text("Нужен для запуска правой Option и вставки текста в другие приложения.")
+                    .foregroundStyle(.secondary)
+                Button("Разрешить Универсальный доступ…", action: requestAccessibility)
+                    .buttonStyle(.bordered)
+            }
+            .padding(16)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            Spacer()
+        }
+        .padding(24)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(.ultraThinMaterial)
     }
 }
 

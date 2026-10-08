@@ -60,7 +60,7 @@ struct TriggerSettingsView: View {
             option(isSelected: trigger == .doubleRightOption,
                    icon: "option",
                    title: "Правая Option",
-                   detail: "Два быстрых нажатия — запись; ещё два — распознавание. Esc — отмена. Удержание — до отпускания.") {
+                   detail: "Два быстрых нажатия — запись; одно — распознавание. Esc — отмена. Удержание — до отпускания.") {
                 choose(.doubleRightOption)
             } accessory: {
                 Text("× 2  /  удержание")
