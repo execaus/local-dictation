@@ -6,6 +6,22 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
     <channel>
         <title>LocalDictationSpike</title>
         <item>
+            <title>0.2.6</title>
+            <pubDate>Thu, 08 Oct 2026 17:59:34 +0300</pubDate>
+            <sparkle:version>8</sparkle:version>
+            <sparkle:shortVersionString>0.2.6</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
+            <description sparkle:format="markdown"><![CDATA[# Local Dictation 0.2.6
+
+- Убрана прямоугольная полупрозрачная подложка под плавающей плашкой записи и распознавания. Видна только скруглённая карточка.
+- Диктовка, словарь и диагностика остаются локальными. Проверка обновлений обращается к GitHub только по нажатию кнопки в настройках.
+
+Архив и лента обновлений подписаны отдельно. Закрытый ключ остаётся в локальной Связке ключей Mac сборки.
+]]></description>
+            <enclosure url="https://github.com/execaus/local-dictation/releases/download/v0.2.6/LocalDictation-0.2.6-macos-arm64.zip" length="537784781" type="application/octet-stream" sparkle:edSignature="fBX8ltH4PHtmwoUl/14ln0mg5hKPxslrVF7lJ61GXXZp2CxnNYAC/kzuWbAs/ObuKzCn0cXffVtmhE2L8d9/Dw=="/>
+        </item>
+        <item>
             <title>0.2.5</title>
             <pubDate>Thu, 08 Oct 2026 15:17:17 +0300</pubDate>
             <sparkle:version>7</sparkle:version>
@@ -47,6 +63,6 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
     </channel>
 </rss>
 <!-- sparkle-signatures:
-edSignature: GJC26pkuvTeLv3A7jYvE5K90toc0YpEBPATK7YJDlabdtNAbMOy0w+gkvVz4CA+D/MBUMYav0Sa/voxZyuJdCA==
-length: 6039
+edSignature: dlClJKYIuWu557UCr1/c+cYrHKUsZsDD3Fm047UFKbFOI4D7EmAmDOXRb8kuKNoJlZOVSd6BUEVpFkjO+rzOCQ==
+length: 7519
 -->

@@ -29,12 +29,19 @@ import SwiftUI
     }
 
     private func show(_ view: StatusPill) {
-        panel.contentView = NSHostingView(rootView: view)
+        let hostingView = TransparentHostingView(rootView: view)
+        hostingView.wantsLayer = true
+        hostingView.layer?.backgroundColor = NSColor.clear.cgColor
+        panel.contentView = hostingView
         if let frame = NSScreen.main?.visibleFrame {
             panel.setFrameOrigin(NSPoint(x: frame.midX - 133, y: frame.minY + 28))
         }
         panel.orderFrontRegardless()
     }
+}
+
+private final class TransparentHostingView<Content: View>: NSHostingView<Content> {
+    override var isOpaque: Bool { false }
 }
 
 private struct StatusPill: View {
@@ -68,7 +75,10 @@ private struct StatusPill: View {
         }
         .padding(.horizontal, 16)
         .frame(width: 260, height: 68)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 23, style: .continuous))
+        .background {
+            RoundedRectangle(cornerRadius: 23, style: .continuous)
+                .fill(Color(nsColor: .windowBackgroundColor).opacity(0.96))
+        }
         .overlay {
             RoundedRectangle(cornerRadius: 23, style: .continuous)
                 .strokeBorder(LinearGradient(colors: [.white.opacity(0.48), .white.opacity(0.08)],
