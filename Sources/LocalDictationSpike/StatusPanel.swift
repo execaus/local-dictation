@@ -5,7 +5,7 @@ import SwiftUI
     private let panel: NSPanel
 
     init() {
-        panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 260, height: 70),
+        panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 266, height: 76),
                         styleMask: [.borderless, .nonactivatingPanel],
                         backing: .buffered, defer: false)
         panel.level = .floating
@@ -31,7 +31,7 @@ import SwiftUI
     private func show(_ view: StatusPill) {
         panel.contentView = NSHostingView(rootView: view)
         if let frame = NSScreen.main?.visibleFrame {
-            panel.setFrameOrigin(NSPoint(x: frame.midX - 130, y: frame.minY + 28))
+            panel.setFrameOrigin(NSPoint(x: frame.midX - 133, y: frame.minY + 28))
         }
         panel.orderFrontRegardless()
     }
@@ -42,11 +42,12 @@ private struct StatusPill: View {
     let mode: Mode
 
     var body: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: 13) {
             Image(systemName: icon)
-                .font(.system(size: 22, weight: .semibold))
+                .font(.system(size: 20, weight: .semibold))
                 .foregroundStyle(iconColor)
-                .frame(width: 28)
+                .frame(width: 38, height: 38)
+                .background(iconColor.opacity(0.12), in: RoundedRectangle(cornerRadius: 12))
                 .symbolEffect(.pulse, options: .repeating)
             VStack(alignment: .leading, spacing: 2) {
                 Text(title).font(.headline)
@@ -65,11 +66,15 @@ private struct StatusPill: View {
             }
             Spacer(minLength: 0)
         }
-        .padding(.horizontal, 18)
-        .frame(width: 260, height: 64)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 20))
-        .overlay(RoundedRectangle(cornerRadius: 20).strokeBorder(.white.opacity(0.16)))
-        .shadow(color: .black.opacity(0.18), radius: 14, y: 5)
+        .padding(.horizontal, 16)
+        .frame(width: 260, height: 68)
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 23, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 23, style: .continuous)
+                .strokeBorder(LinearGradient(colors: [.white.opacity(0.48), .white.opacity(0.08)],
+                                             startPoint: .topLeading, endPoint: .bottomTrailing))
+        }
+        .shadow(color: .black.opacity(0.14), radius: 18, y: 8)
         .padding(3)
     }
 

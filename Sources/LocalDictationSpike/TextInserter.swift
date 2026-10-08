@@ -20,19 +20,14 @@ enum InsertError: LocalizedError {
 enum TextInserter {
     static func insert(_ text: String, expectedPID: pid_t? = nil) throws {
         guard AXIsProcessTrusted() else { throw InsertError.permissionDenied }
-        let system = AXUIElementCreateSystemWide()
-        var focusedApplicationValue: CFTypeRef?
-        var focusedApplicationPID: pid_t = 0
-        if AXUIElementCopyAttributeValue(system, kAXFocusedApplicationAttribute as CFString,
-                                         &focusedApplicationValue) == .success,
-           let focusedApplicationValue,
-           CFGetTypeID(focusedApplicationValue) == AXUIElementGetTypeID() {
-            _ = AXUIElementGetPid(focusedApplicationValue as! AXUIElement, &focusedApplicationPID)
-        }
-        if let expectedPID, focusedApplicationPID > 0, focusedApplicationPID != expectedPID {
-            Diagnostics.record("insertion.ax.other-application-focused")
+        // Accessibility can omit the focused element for web-based editors.
+        // The foreground application is the destination of normal keyboard input.
+        guard let frontmostPID = NSWorkspace.shared.frontmostApplication?.processIdentifier,
+              expectedPID == nil || expectedPID == frontmostPID else {
+            Diagnostics.record("insertion.frontmost-application-changed")
             throw InsertError.noFocusedElement
         }
+        let system = AXUIElementCreateSystemWide()
         var value: CFTypeRef?
         var element: AXUIElement?
         if AXUIElementCopyAttributeValue(system, kAXFocusedUIElementAttribute as CFString, &value) == .success,
@@ -41,19 +36,27 @@ enum TextInserter {
         }
         // Some IDEs expose the focused editor only through their application AX tree.
         var focusedPID: pid_t = 0
-        let matchesTarget = element.map { AXUIElementGetPid($0, &focusedPID) == .success &&
-            (focusedPID == expectedPID || focusedApplicationPID == expectedPID) } ?? false
-        if !matchesTarget, let expectedPID {
-            let app = AXUIElementCreateApplication(expectedPID)
+        let matchesTarget = element.map {
+            AXUIElementGetPid($0, &focusedPID) == .success && focusedPID == frontmostPID
+        } ?? false
+        if !matchesTarget {
+            element = nil
+            let app = AXUIElementCreateApplication(frontmostPID)
             value = nil
             if AXUIElementCopyAttributeValue(app, kAXFocusedUIElementAttribute as CFString, &value) == .success,
                let value, CFGetTypeID(value) == AXUIElementGetTypeID() {
-                element = (value as! AXUIElement)
+                let candidate = value as! AXUIElement
+                var candidatePID: pid_t = 0
+                if AXUIElementGetPid(candidate, &candidatePID) == .success,
+                   candidatePID == frontmostPID {
+                    element = candidate
+                }
             }
         }
         guard let element else {
-            Diagnostics.record("insertion.ax.no-focused-element")
-            throw InsertError.noFocusedElement
+            Diagnostics.record("insertion.ax.focus-unavailable; keyboard-fallback")
+            try postText(text, to: frontmostPID)
+            return
         }
 
         // Never send text to a secure text field.
@@ -66,17 +69,12 @@ enum TextInserter {
             throw InsertError.unsupportedField
         }
 
-        var pid: pid_t = 0
-        guard AXUIElementGetPid(element, &pid) == .success, pid > 0 else {
-            throw InsertError.noFocusedElement
-        }
-        if let expectedPID, pid != expectedPID && focusedApplicationPID != expectedPID {
-            Diagnostics.record("insertion.ax.element-owner-mismatch")
-            throw InsertError.noFocusedElement
-        }
-
         // The editor must process an input event itself. Setting AXSelectedText can
         // change the rendered text without updating an IDE editor's document model.
+        try postText(text, to: frontmostPID)
+    }
+
+    private static func postText(_ text: String, to pid: pid_t) throws {
         guard let source = CGEventSource(stateID: .privateState),
               let keyDown = CGEvent(keyboardEventSource: source, virtualKey: 0, keyDown: true),
               let keyUp = CGEvent(keyboardEventSource: source, virtualKey: 0, keyDown: false) else {
@@ -88,8 +86,7 @@ enum TextInserter {
         }
         keyDown.flags = []
         keyUp.flags = []
-        let recipientPID = expectedPID ?? pid
-        keyDown.postToPid(recipientPID)
-        keyUp.postToPid(recipientPID)
+        keyDown.postToPid(pid)
+        keyUp.postToPid(pid)
     }
 }

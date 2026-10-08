@@ -7,15 +7,11 @@ struct TriggerSettingsView: View {
     @State private var recordingShortcut = false
     @State private var errorText: String?
     @State private var hasAccessibility = AXIsProcessTrusted()
-    @State private var observedRightControlEvents = 0
     let apply: (DictationTrigger) -> String?
-    let rightControlEventCount: () -> Int
 
-    init(trigger: DictationTrigger, apply: @escaping (DictationTrigger) -> String?,
-         rightControlEventCount: @escaping () -> Int) {
+    init(trigger: DictationTrigger, apply: @escaping (DictationTrigger) -> String?) {
         _trigger = State(initialValue: trigger)
         self.apply = apply
-        self.rightControlEventCount = rightControlEventCount
     }
 
     var body: some View {
@@ -31,7 +27,7 @@ struct TriggerSettingsView: View {
                 HStack(alignment: .center, spacing: 12) {
                     Image(systemName: "hand.raised.fill")
                         .foregroundStyle(.orange)
-                    Text("Правый Control ждёт разрешения «Универсальный доступ». Пока доступно сочетание ⌃⌥Пробел.")
+                    Text("Правая Option ждёт разрешения «Универсальный доступ». Пока доступно сочетание ⌃⌥Пробел.")
                         .font(.callout)
                     Spacer()
                     Button("Открыть настройки") {
@@ -61,20 +57,14 @@ struct TriggerSettingsView: View {
                 }
             }
 
-            option(isSelected: trigger == .doubleRightControl,
-                   icon: "control",
-                   title: "Правый Control",
-                   detail: "Два быстрых нажатия — запись до Esc. Удержание — запись до отпускания.") {
-                choose(.doubleRightControl)
+            option(isSelected: trigger == .doubleRightOption,
+                   icon: "option",
+                   title: "Правая Option",
+                   detail: "Два быстрых нажатия — запись; ещё два — распознавание. Esc — отмена. Удержание — до отпускания.") {
+                choose(.doubleRightOption)
             } accessory: {
                 Text("× 2  /  удержание")
                     .font(.system(.caption, design: .rounded).weight(.semibold))
-                    .foregroundStyle(.secondary)
-            }
-
-            if trigger == .doubleRightControl {
-                Text("Проверка клавиши: нажмите правый Control. Получено событий: \(observedRightControlEvents).")
-                    .font(.caption)
                     .foregroundStyle(.secondary)
             }
 
@@ -115,10 +105,9 @@ struct TriggerSettingsView: View {
         }
         .padding(24)
         .frame(width: 610)
-        .background(.regularMaterial)
+        .background(.ultraThinMaterial)
         .onReceive(Timer.publish(every: 1.5, on: .main, in: .common).autoconnect()) { _ in
             hasAccessibility = AXIsProcessTrusted()
-            observedRightControlEvents = rightControlEventCount()
         }
     }
 
@@ -172,10 +161,11 @@ struct TriggerSettingsView: View {
             HStack { Spacer(); accessory() }
         }
         .padding(16)
-        .background(isSelected ? Color.accentColor.opacity(0.09) : Color.primary.opacity(0.035),
-                    in: RoundedRectangle(cornerRadius: 16))
-        .overlay(RoundedRectangle(cornerRadius: 16)
-            .strokeBorder(isSelected ? Color.accentColor.opacity(0.45) : Color.primary.opacity(0.07)))
+        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .background(isSelected ? Color.accentColor.opacity(0.08) : .clear,
+                    in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous)
+            .strokeBorder(isSelected ? Color.accentColor.opacity(0.5) : Color.primary.opacity(0.09)))
     }
 }
 

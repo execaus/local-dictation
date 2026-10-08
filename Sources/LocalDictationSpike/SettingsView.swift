@@ -10,15 +10,13 @@ struct SettingsView: View {
     @ObservedObject var dictionaryStore: DictionaryStore
     let trigger: DictationTrigger
     let applyTrigger: (DictationTrigger) -> String?
-    let rightControlEventCount: () -> Int
 
     var body: some View {
         TabView(selection: $section) {
             MicrophoneSettingsView(store: microphoneStore)
                 .tabItem { Label("Микрофон", systemImage: "mic.fill") }
                 .tag(SettingsSection.microphone)
-            TriggerSettingsView(trigger: trigger, apply: applyTrigger,
-                                rightControlEventCount: rightControlEventCount)
+            TriggerSettingsView(trigger: trigger, apply: applyTrigger)
                 .tabItem { Label("Клавиши", systemImage: "keyboard") }
                 .tag(SettingsSection.keyboard)
             DictionaryView(store: dictionaryStore)
@@ -53,7 +51,9 @@ private struct MicrophoneSettingsView: View {
                     .buttonStyle(.bordered)
             }
             .padding(16)
-            .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 14))
+            .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .strokeBorder(.white.opacity(0.16)))
 
             if store.selectedDeviceMissing {
                 Label("Выбранный микрофон сейчас не подключён. Подключите его или выберите другой.",
@@ -68,6 +68,6 @@ private struct MicrophoneSettingsView: View {
         }
         .padding(24)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(.regularMaterial)
+        .background(.ultraThinMaterial)
     }
 }

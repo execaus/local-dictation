@@ -48,36 +48,38 @@ struct DictationShortcut: Codable, Equatable {
 
 enum DictationTrigger: Codable, Equatable {
     case shortcut(DictationShortcut)
-    case doubleRightControl
+    case doubleRightOption
 
-    static let `default`: DictationTrigger = .doubleRightControl
+    static let `default`: DictationTrigger = .doubleRightOption
 
     var title: String {
         switch self {
         case .shortcut(let shortcut): shortcut.title
-        case .doubleRightControl: "Правый Control × 2"
+        case .doubleRightOption: "Правая Option × 2"
         }
     }
 }
 
-@MainActor final class DoubleRightControlMonitor {
+@MainActor final class DoubleRightOptionMonitor {
     private enum State {
         case ready
         case firstTap(TimeInterval)
         case pressing(TimeInterval, Bool, Int)
         case holding
         case sticky
+        case stickyPressing(TimeInterval, Bool)
+        case stickyFirstTap(TimeInterval)
     }
 
     private var globalToken: Any?
     private var localToken: Any?
-    private(set) var observedEventCount = 0
     private var state: State = .ready
     private var isDown = false
     private var generation = 0
     private var onHoldStart: (() -> Void)?
     private var onHoldEnd: (() -> Void)?
     private var onStickyStart: (() -> Void)?
+    private var onStickyEnd: (() -> Void)?
 
     var isHolding: Bool {
         if case .holding = state { return true }
@@ -86,16 +88,20 @@ enum DictationTrigger: Codable, Equatable {
 
     var isSticky: Bool {
         if case .sticky = state { return true }
+        if case .stickyPressing = state { return true }
+        if case .stickyFirstTap = state { return true }
         return false
     }
 
     func start(onHoldStart: @escaping () -> Void,
                onHoldEnd: @escaping () -> Void,
-               onStickyStart: @escaping () -> Void) -> Bool {
+               onStickyStart: @escaping () -> Void,
+               onStickyEnd: @escaping () -> Void) -> Bool {
         stop()
         self.onHoldStart = onHoldStart
         self.onHoldEnd = onHoldEnd
         self.onStickyStart = onStickyStart
+        self.onStickyEnd = onStickyEnd
         globalToken = NSEvent.addGlobalMonitorForEvents(matching: .flagsChanged) { [weak self] event in
             MainActor.assumeIsolated { self?.handle(event) }
         }
@@ -103,7 +109,7 @@ enum DictationTrigger: Codable, Equatable {
             MainActor.assumeIsolated { self?.handle(event) }
             return event
         }
-        Diagnostics.record("right-control.monitor global=\(globalToken != nil) local=\(localToken != nil) accessibility=\(AXIsProcessTrusted()) input-monitoring=\(CGPreflightListenEventAccess())")
+        Diagnostics.record("right-option.monitor global=\(globalToken != nil) local=\(localToken != nil) accessibility=\(AXIsProcessTrusted())")
         return globalToken != nil && localToken != nil
     }
 
@@ -115,6 +121,7 @@ enum DictationTrigger: Codable, Equatable {
         onHoldStart = nil
         onHoldEnd = nil
         onStickyStart = nil
+        onStickyEnd = nil
         reset()
     }
 
@@ -125,27 +132,32 @@ enum DictationTrigger: Codable, Equatable {
     }
 
     private func handle(_ event: NSEvent) {
-        if event.keyCode == UInt16(kVK_RightControl) {
-            observedEventCount += 1
-            Diagnostics.record("right-control.event pressed=\(event.modifierFlags.contains(.control))")
-        } else if event.modifierFlags.contains(.control) {
-            Diagnostics.record("control-modifier.event code=\(event.keyCode)")
+        if event.keyCode == UInt16(kVK_RightOption) {
+            Diagnostics.record("right-option.event pressed=\(event.modifierFlags.contains(.option))")
         }
         accept(keyCode: event.keyCode,
-               isPressed: event.modifierFlags.contains(.control),
+               isPressed: event.modifierFlags.contains(.option),
                at: event.timestamp)
     }
 
     func accept(keyCode: UInt16, isPressed: Bool, at now: TimeInterval) {
-        guard keyCode == UInt16(kVK_RightControl) else {
+        guard keyCode == UInt16(kVK_RightOption) else {
             if case .firstTap = state { state = .ready }
             if case .pressing = state { reset() }
+            if case .stickyFirstTap = state { state = .sticky }
             return
         }
         guard isPressed != isDown else { return }
         isDown = isPressed
         if isPressed {
-            if case .sticky = state { return }
+            if case .sticky = state {
+                state = .stickyPressing(now, false)
+                return
+            }
+            if case .stickyFirstTap(let releasedAt) = state {
+                state = .stickyPressing(now, now - releasedAt <= 0.42)
+                return
+            }
             let isSecond: Bool
             if case .firstTap(let releasedAt) = state {
                 isSecond = now - releasedAt <= 0.42
@@ -159,16 +171,28 @@ enum DictationTrigger: Codable, Equatable {
                 guard let self, case .pressing(_, _, let pending) = self.state,
                       pending == current, self.isDown else { return }
                 self.state = .holding
-                Diagnostics.record("right-control.hold")
+                Diagnostics.record("right-option.hold")
                 self.onHoldStart?()
             }
         } else {
             switch state {
+            case .stickyPressing(let startedAt, let isSecond):
+                if now - startedAt <= 0.28 {
+                    if isSecond {
+                        state = .ready
+                        Diagnostics.record("right-option.sticky-stop")
+                        onStickyEnd?()
+                    } else {
+                        state = .stickyFirstTap(now)
+                    }
+                } else {
+                    state = .sticky
+                }
             case .pressing(let startedAt, let isSecond, _):
                 if now - startedAt <= 0.28 {
                     if isSecond {
                         state = .sticky
-                        Diagnostics.record("right-control.double-tap")
+                        Diagnostics.record("right-option.double-tap")
                         onStickyStart?()
                     } else {
                         state = .firstTap(now)

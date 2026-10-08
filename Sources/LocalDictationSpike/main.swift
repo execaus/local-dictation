@@ -1,6 +1,7 @@
 import AppKit
 import AVFoundation
 import Carbon
+import Sparkle
 import SwiftUI
 
 private let hotKeySignature: OSType = 0x4C445350 // LDSP
@@ -20,7 +21,7 @@ private let cancelHotKeyID: UInt32 = 2
     private var escapeStopHotKey: EventHotKeyRef?
     private var escapeStopMonitor: Any?
     private var accessibilityRetryTimer: Timer?
-    private var pendingRightControl = false
+    private var pendingRightOption = false
     private var settingsWindow: NSWindow?
     private var lastExternalPID: pid_t?
     private var pendingText: String?
@@ -35,7 +36,10 @@ private let cancelHotKeyID: UInt32 = 2
     private let dictionaryStore = DictionaryStore()
     private let microphoneStore = MicrophoneStore()
     private let statusPanel = StatusPanel()
-    private let rightControlMonitor = DoubleRightControlMonitor()
+    private let rightOptionMonitor = DoubleRightOptionMonitor()
+    private let updaterController = SPUStandardUpdaterController(startingUpdater: true,
+                                                                  updaterDelegate: nil,
+                                                                  userDriverDelegate: nil)
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         Diagnostics.record("launch")
@@ -52,10 +56,15 @@ private let cancelHotKeyID: UInt32 = 2
         menu.addItem(retryInsertItem)
         menu.addItem(.separator())
         menu.addItem(NSMenuItem(title: "Настройки…", action: #selector(showSettings), keyEquivalent: ""))
+        let checkUpdatesItem = NSMenuItem(title: "Проверить и установить обновление…",
+                                          action: #selector(SPUStandardUpdaterController.checkForUpdates(_:)),
+                                          keyEquivalent: "")
+        menu.addItem(checkUpdatesItem)
         menu.addItem(NSMenuItem(title: "Разрешить Универсальный доступ…", action: #selector(requestAccessibility), keyEquivalent: ""))
         menu.addItem(NSMenuItem(title: "Открыть журнал диагностики…", action: #selector(openDiagnostics), keyEquivalent: ""))
         menu.addItem(NSMenuItem(title: "Выход", action: #selector(quit), keyEquivalent: "q"))
         for item in menu.items { item.target = self }
+        checkUpdatesItem.target = updaterController
         statusItem.menu = menu
         let currentPID = NSWorkspace.shared.frontmostApplication?.processIdentifier
         if let currentPID, currentPID != ProcessInfo.processInfo.processIdentifier {
@@ -82,7 +91,7 @@ private let cancelHotKeyID: UInt32 = 2
             MainActor.assumeIsolated {
                 if id.id == hotKeyID { delegate.toggleRecording() }
                 if id.id == cancelHotKeyID { delegate.cancelRecording() }
-                if id.id == 3 { delegate.stopStickyRecording() }
+                if id.id == 3 { delegate.cancelRecording() }
             }
             return noErr
         }
@@ -91,17 +100,17 @@ private let cancelHotKeyID: UInt32 = 2
         RegisterEventHotKey(53, UInt32(controlKey | optionKey), EventHotKeyID(signature: hotKeySignature, id: cancelHotKeyID),
                             GetApplicationEventTarget(), 0, &cancelHotKey)
         if let error = installTrigger(trigger, persist: false) {
-            let retryRightControl = trigger == .doubleRightControl && !AXIsProcessTrusted()
+            let retryRightOption = trigger == .doubleRightOption && !AXIsProcessTrusted()
             trigger = .shortcut(.standard)
             if let fallbackError = installTrigger(trigger, persist: false) {
                 showError(NSError(domain: "LocalDictation", code: 1,
                                   userInfo: [NSLocalizedDescriptionKey: fallbackError]))
-            } else if !retryRightControl {
+            } else if !retryRightOption {
                 showError(NSError(domain: "LocalDictation", code: 1,
                                   userInfo: [NSLocalizedDescriptionKey: error + " Включено стандартное сочетание."]))
             }
-            if retryRightControl {
-                pendingRightControl = true
+            if retryRightOption {
+                pendingRightOption = true
                 startAccessibilityRetry()
             }
         }
@@ -112,14 +121,14 @@ private let cancelHotKeyID: UInt32 = 2
         accessibilityRetryTimer = Timer.scheduledTimer(withTimeInterval: 1.5, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated {
                 guard let self else { return }
-                guard self.pendingRightControl else {
+                guard self.pendingRightOption else {
                     self.accessibilityRetryTimer?.invalidate()
                     self.accessibilityRetryTimer = nil
                     return
                 }
                 guard AXIsProcessTrusted(), case .idle = self.state else { return }
-                if self.installTrigger(.doubleRightControl, persist: true) == nil {
-                    self.pendingRightControl = false
+                if self.installTrigger(.doubleRightOption, persist: true) == nil {
+                    self.pendingRightOption = false
                     self.accessibilityRetryTimer?.invalidate()
                     self.accessibilityRetryTimer = nil
                 }
@@ -145,20 +154,21 @@ private let cancelHotKeyID: UInt32 = 2
             }
             if let hotKey { UnregisterEventHotKey(hotKey) }
             hotKey = replacement
-            rightControlMonitor.stop()
-            if persist { pendingRightControl = false }
-        case .doubleRightControl:
+            rightOptionMonitor.stop()
+            if persist { pendingRightOption = false }
+        case .doubleRightOption:
             guard AXIsProcessTrusted() else {
                 if persist {
-                    pendingRightControl = true
+                    pendingRightOption = true
                     startAccessibilityRetry()
                 }
-                return "Для двойного правого Control разрешите приложению доступ к «Универсальному доступу»."
+                return "Для двойного нажатия правой Option разрешите приложению доступ к «Универсальному доступу»."
             }
-            guard rightControlMonitor.start(onHoldStart: { [weak self] in self?.beginRecording(mode: .hold) },
+            guard rightOptionMonitor.start(onHoldStart: { [weak self] in self?.beginRecording(mode: .hold) },
                                             onHoldEnd: { [weak self] in self?.stopHoldRecording() },
-                                            onStickyStart: { [weak self] in self?.beginStickyRecording() }) else {
-                return "Не удалось отслеживать правый Control. Проверьте разрешение «Универсальный доступ»."
+                                            onStickyStart: { [weak self] in self?.beginStickyRecording() },
+                                            onStickyEnd: { [weak self] in self?.finishStickyRecording() }) else {
+                return "Не удалось отслеживать правую Option. Проверьте разрешение «Универсальный доступ»."
             }
             if let hotKey { UnregisterEventHotKey(hotKey) }
             hotKey = nil
@@ -182,9 +192,9 @@ private let cancelHotKeyID: UInt32 = 2
                 actionItem.title = "Остановить диктовку"
             }
         case .recording(_, .hold):
-            actionItem.title = "Отпустите правый Control для остановки"
+            actionItem.title = "Отпустите правую Option для остановки"
         case .recording(_, .sticky):
-            actionItem.title = "Остановить диктовку · Esc"
+            actionItem.title = "Остановить и распознать · правая Option × 2"
         case .processing:
             actionItem.title = "Распознавание…"
         }
@@ -192,38 +202,31 @@ private let cancelHotKeyID: UInt32 = 2
 
     private func beginStickyRecording() {
         guard case .idle = state else {
-            rightControlMonitor.reset()
-            return
-        }
-        var replacement: EventHotKeyRef?
-        let status = RegisterEventHotKey(53, 0, EventHotKeyID(signature: hotKeySignature, id: 3),
-                                         GetApplicationEventTarget(), 0, &replacement)
-        if status == noErr, let replacement {
-            escapeStopHotKey = replacement
-        } else {
-            escapeStopMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] event in
-                guard event.keyCode == 53 else { return }
-                MainActor.assumeIsolated { self?.stopStickyRecording() }
-            }
-        }
-        guard escapeStopHotKey != nil || escapeStopMonitor != nil else {
-            rightControlMonitor.reset()
-            showError(NSError(domain: "LocalDictation", code: 2, userInfo: [
-                NSLocalizedDescriptionKey: "Не удалось отслеживать Esc для остановки записи. Проверьте «Универсальный доступ»."
-            ]))
+            rightOptionMonitor.reset()
             return
         }
         beginRecording(mode: .sticky)
     }
 
-    private func stopStickyRecording() {
-        guard case .recording(let pid, .sticky) = state else {
-            clearEscapeStopHotKey()
-            rightControlMonitor.reset()
-            return
-        }
-        rightControlMonitor.reset()
+    private func finishStickyRecording() {
+        guard case .recording(let pid, .sticky) = state else { return }
+        rightOptionMonitor.reset()
         stopRecording(for: pid)
+    }
+
+    private func installEscapeCancelHotKey() -> Bool {
+        clearEscapeStopHotKey()
+        var replacement: EventHotKeyRef?
+        let status = RegisterEventHotKey(53, 0, EventHotKeyID(signature: hotKeySignature, id: 3),
+                                         GetApplicationEventTarget(), 0, &replacement)
+        if status == noErr, let replacement {
+            escapeStopHotKey = replacement
+        }
+        escapeStopMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard event.keyCode == 53 else { return }
+            MainActor.assumeIsolated { self?.cancelRecording() }
+        }
+        return escapeStopHotKey != nil || escapeStopMonitor != nil
     }
 
     private func stopHoldRecording() {
@@ -243,7 +246,7 @@ private let cancelHotKeyID: UInt32 = 2
         case .idle:
             beginRecording(mode: .toggle)
         case .recording(let pid, _):
-            rightControlMonitor.reset()
+            rightOptionMonitor.reset()
             stopRecording(for: pid)
         case .processing:
             break
@@ -264,14 +267,14 @@ private let cancelHotKeyID: UInt32 = 2
                         self.startRecording(for: pid, mode: mode)
                     } else {
                         self.clearEscapeStopHotKey()
-                        self.rightControlMonitor.reset()
+                        self.rightOptionMonitor.reset()
                         self.showError(RecordingError.microphoneDenied)
                     }
                 }
             }
         default:
             clearEscapeStopHotKey()
-            rightControlMonitor.reset()
+            rightOptionMonitor.reset()
             showError(RecordingError.microphoneDenied)
         }
     }
@@ -293,9 +296,14 @@ private let cancelHotKeyID: UInt32 = 2
 
     private func startRecording(for pid: pid_t, mode: RecordingMode) {
         guard case .idle = state else { return }
-        if mode == .hold && !rightControlMonitor.isHolding { return }
-        if mode == .sticky && !rightControlMonitor.isSticky { return }
+        if mode == .hold && !rightOptionMonitor.isHolding { return }
+        if mode == .sticky && !rightOptionMonitor.isSticky { return }
         do {
+            guard installEscapeCancelHotKey() else {
+                throw NSError(domain: "LocalDictation", code: 2, userInfo: [
+                    NSLocalizedDescriptionKey: "Не удалось отслеживать Esc для отмены записи. Проверьте «Универсальный доступ»."
+                ])
+            }
             Diagnostics.record("recording.start")
             try recorder.start(microphoneUID: microphoneStore.selectedUID)
             state = .recording(pid, mode)
@@ -306,7 +314,7 @@ private let cancelHotKeyID: UInt32 = 2
         } catch {
             Diagnostics.record("recording.start.error: \(type(of: error))")
             clearEscapeStopHotKey()
-            rightControlMonitor.reset()
+            rightOptionMonitor.reset()
             showError(error)
         }
     }
@@ -399,7 +407,7 @@ private let cancelHotKeyID: UInt32 = 2
         recorder.cancel()
         state = .idle
         clearEscapeStopHotKey()
-        rightControlMonitor.reset()
+        rightOptionMonitor.reset()
         cancelItem.isEnabled = false
         updateActionTitle()
         statusItem.button?.image = NSImage(systemSymbolName: "waveform", accessibilityDescription: "Локальная диктовка")
@@ -409,7 +417,7 @@ private let cancelHotKeyID: UInt32 = 2
     @objc private func handleSessionInterruption(_ notification: Notification) {
         cancelRecording()
         clearEscapeStopHotKey()
-        rightControlMonitor.reset()
+        rightOptionMonitor.reset()
     }
 
     private func showError(_ error: Error, result: String? = nil) {
@@ -458,6 +466,7 @@ private let cancelHotKeyID: UInt32 = 2
                                   styleMask: [.titled, .closable, .miniaturizable],
                                   backing: .buffered, defer: false)
             window.title = "Настройки"
+            window.titlebarAppearsTransparent = true
             window.isReleasedWhenClosed = false
             window.level = .floating
             window.collectionBehavior = [.moveToActiveSpace, .auxiliary, .fullScreenAuxiliary]
@@ -466,8 +475,6 @@ private let cancelHotKeyID: UInt32 = 2
                                                                       trigger: trigger,
                                                                       applyTrigger: { [weak self] candidate in
                 self?.installTrigger(candidate, persist: true)
-            }, rightControlEventCount: { [weak self] in
-                self?.rightControlMonitor.observedEventCount ?? 0
             }))
             window.center()
             settingsWindow = window
@@ -512,7 +519,7 @@ private let cancelHotKeyID: UInt32 = 2
         accessibilityRetryTimer?.invalidate()
         if case .recording = state { recorder.cancel() }
         statusPanel.hide()
-        rightControlMonitor.stop()
+        rightOptionMonitor.stop()
         if let hotKey { UnregisterEventHotKey(hotKey) }
         if let cancelHotKey { UnregisterEventHotKey(cancelHotKey) }
         clearEscapeStopHotKey()
@@ -532,34 +539,42 @@ if CommandLine.arguments.contains("--self-check") {
         fputs("Dictionary self-check failed: \(actual)\n", stderr)
         exit(1)
     }
-    let gesture = DoubleRightControlMonitor()
-    gesture.accept(keyCode: 62, isPressed: true, at: 1.0)
-    gesture.accept(keyCode: 62, isPressed: false, at: 1.08)
-    gesture.accept(keyCode: 62, isPressed: true, at: 1.20)
-    gesture.accept(keyCode: 62, isPressed: false, at: 1.28)
+    let gesture = DoubleRightOptionMonitor()
+    gesture.accept(keyCode: 61, isPressed: true, at: 1.0)
+    gesture.accept(keyCode: 61, isPressed: false, at: 1.08)
+    gesture.accept(keyCode: 61, isPressed: true, at: 1.20)
+    gesture.accept(keyCode: 61, isPressed: false, at: 1.28)
     guard gesture.isSticky else {
-        fputs("Double Control self-check failed\n", stderr)
+        fputs("Double Option self-check failed\n", stderr)
+        exit(1)
+    }
+    gesture.accept(keyCode: 61, isPressed: true, at: 1.50)
+    gesture.accept(keyCode: 61, isPressed: false, at: 1.58)
+    gesture.accept(keyCode: 61, isPressed: true, at: 1.70)
+    gesture.accept(keyCode: 61, isPressed: false, at: 1.78)
+    guard !gesture.isSticky else {
+        fputs("Double Option stop self-check failed\n", stderr)
         exit(1)
     }
     gesture.reset()
-    gesture.accept(keyCode: 62, isPressed: true, at: 2.0)
+    gesture.accept(keyCode: 61, isPressed: true, at: 2.0)
     RunLoop.main.run(until: Date().addingTimeInterval(0.32))
     guard gesture.isHolding else {
-        fputs("Control hold self-check failed\n", stderr)
+        fputs("Option hold self-check failed\n", stderr)
         exit(1)
     }
-    gesture.accept(keyCode: 62, isPressed: false, at: 2.40)
+    gesture.accept(keyCode: 61, isPressed: false, at: 2.40)
     guard !gesture.isHolding else {
-        fputs("Control release self-check failed\n", stderr)
+        fputs("Option release self-check failed\n", stderr)
         exit(1)
     }
-    gesture.accept(keyCode: 62, isPressed: true, at: 3.0)
-    gesture.accept(keyCode: 62, isPressed: false, at: 3.08)
+    gesture.accept(keyCode: 61, isPressed: true, at: 3.0)
+    gesture.accept(keyCode: 61, isPressed: false, at: 3.08)
     gesture.accept(keyCode: 58, isPressed: true, at: 3.10)
-    gesture.accept(keyCode: 62, isPressed: true, at: 3.20)
-    gesture.accept(keyCode: 62, isPressed: false, at: 3.28)
+    gesture.accept(keyCode: 61, isPressed: true, at: 3.20)
+    gesture.accept(keyCode: 61, isPressed: false, at: 3.28)
     guard !gesture.isSticky else {
-        fputs("Interrupted double Control self-check failed\n", stderr)
+        fputs("Interrupted double Option self-check failed\n", stderr)
         exit(1)
     }
     let keyEvent = NSEvent.keyEvent(with: .keyDown, location: .zero,
@@ -609,8 +624,7 @@ if CommandLine.arguments.contains("--settings-check") {
         window.contentView = NSHostingView(rootView: SettingsView(microphoneStore: microphones,
                                                                   dictionaryStore: dictionary,
                                                                   trigger: .default,
-                                                                  applyTrigger: { _ in nil },
-                                                                  rightControlEventCount: { 0 }))
+                                                                  applyTrigger: { _ in nil }))
         window.contentView?.layoutSubtreeIfNeeded()
         window.close()
     }

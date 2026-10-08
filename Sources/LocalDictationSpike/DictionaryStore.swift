@@ -93,6 +93,6 @@ struct DictionaryView: View {
         }
         .padding(24)
         .frame(minWidth: 620, minHeight: 360)
-        .background(.regularMaterial)
+        .background(.ultraThinMaterial)
     }
 }
