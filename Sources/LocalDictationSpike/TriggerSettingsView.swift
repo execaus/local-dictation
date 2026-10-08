@@ -7,11 +7,15 @@ struct TriggerSettingsView: View {
     @State private var recordingShortcut = false
     @State private var errorText: String?
     @State private var hasAccessibility = AXIsProcessTrusted()
+    @State private var observedRightControlEvents = 0
     let apply: (DictationTrigger) -> String?
+    let rightControlEventCount: () -> Int
 
-    init(trigger: DictationTrigger, apply: @escaping (DictationTrigger) -> String?) {
+    init(trigger: DictationTrigger, apply: @escaping (DictationTrigger) -> String?,
+         rightControlEventCount: @escaping () -> Int) {
         _trigger = State(initialValue: trigger)
         self.apply = apply
+        self.rightControlEventCount = rightControlEventCount
     }
 
     var body: some View {
@@ -68,6 +72,12 @@ struct TriggerSettingsView: View {
                     .foregroundStyle(.secondary)
             }
 
+            if trigger == .doubleRightControl {
+                Text("Проверка клавиши: нажмите правый Control. Получено событий: \(observedRightControlEvents).")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
             if recordingShortcut {
                 HStack(spacing: 10) {
                     Image(systemName: "keyboard.badge.ellipsis")
@@ -108,6 +118,7 @@ struct TriggerSettingsView: View {
         .background(.regularMaterial)
         .onReceive(Timer.publish(every: 1.5, on: .main, in: .common).autoconnect()) { _ in
             hasAccessibility = AXIsProcessTrusted()
+            observedRightControlEvents = rightControlEventCount()
         }
     }
 

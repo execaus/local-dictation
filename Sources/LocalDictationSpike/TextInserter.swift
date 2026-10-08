@@ -21,6 +21,18 @@ enum TextInserter {
     static func insert(_ text: String, expectedPID: pid_t? = nil) throws {
         guard AXIsProcessTrusted() else { throw InsertError.permissionDenied }
         let system = AXUIElementCreateSystemWide()
+        var focusedApplicationValue: CFTypeRef?
+        var focusedApplicationPID: pid_t = 0
+        if AXUIElementCopyAttributeValue(system, kAXFocusedApplicationAttribute as CFString,
+                                         &focusedApplicationValue) == .success,
+           let focusedApplicationValue,
+           CFGetTypeID(focusedApplicationValue) == AXUIElementGetTypeID() {
+            _ = AXUIElementGetPid(focusedApplicationValue as! AXUIElement, &focusedApplicationPID)
+        }
+        if let expectedPID, focusedApplicationPID > 0, focusedApplicationPID != expectedPID {
+            Diagnostics.record("insertion.ax.other-application-focused")
+            throw InsertError.noFocusedElement
+        }
         var value: CFTypeRef?
         var element: AXUIElement?
         if AXUIElementCopyAttributeValue(system, kAXFocusedUIElementAttribute as CFString, &value) == .success,
@@ -29,7 +41,8 @@ enum TextInserter {
         }
         // Some IDEs expose the focused editor only through their application AX tree.
         var focusedPID: pid_t = 0
-        let matchesTarget = element.map { AXUIElementGetPid($0, &focusedPID) == .success && focusedPID == expectedPID } ?? false
+        let matchesTarget = element.map { AXUIElementGetPid($0, &focusedPID) == .success &&
+            (focusedPID == expectedPID || focusedApplicationPID == expectedPID) } ?? false
         if !matchesTarget, let expectedPID {
             let app = AXUIElementCreateApplication(expectedPID)
             value = nil
@@ -38,7 +51,10 @@ enum TextInserter {
                 element = (value as! AXUIElement)
             }
         }
-        guard let element else { throw InsertError.noFocusedElement }
+        guard let element else {
+            Diagnostics.record("insertion.ax.no-focused-element")
+            throw InsertError.noFocusedElement
+        }
 
         // Never send text to a secure text field.
         var roleValue: CFTypeRef?
@@ -54,7 +70,8 @@ enum TextInserter {
         guard AXUIElementGetPid(element, &pid) == .success, pid > 0 else {
             throw InsertError.noFocusedElement
         }
-        if let expectedPID, pid != expectedPID {
+        if let expectedPID, pid != expectedPID && focusedApplicationPID != expectedPID {
+            Diagnostics.record("insertion.ax.element-owner-mismatch")
             throw InsertError.noFocusedElement
         }
 
@@ -71,7 +88,8 @@ enum TextInserter {
         }
         keyDown.flags = []
         keyUp.flags = []
-        keyDown.postToPid(pid)
-        keyUp.postToPid(pid)
+        let recipientPID = expectedPID ?? pid
+        keyDown.postToPid(recipientPID)
+        keyUp.postToPid(recipientPID)
     }
 }

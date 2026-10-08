@@ -69,7 +69,9 @@ enum DictationTrigger: Codable, Equatable {
         case sticky
     }
 
-    private var token: Any?
+    private var globalToken: Any?
+    private var localToken: Any?
+    private(set) var observedEventCount = 0
     private var state: State = .ready
     private var isDown = false
     private var generation = 0
@@ -94,16 +96,22 @@ enum DictationTrigger: Codable, Equatable {
         self.onHoldStart = onHoldStart
         self.onHoldEnd = onHoldEnd
         self.onStickyStart = onStickyStart
-        token = NSEvent.addGlobalMonitorForEvents(matching: .flagsChanged) { [weak self] event in
+        globalToken = NSEvent.addGlobalMonitorForEvents(matching: .flagsChanged) { [weak self] event in
             MainActor.assumeIsolated { self?.handle(event) }
         }
-        Diagnostics.record(token == nil ? "right-control.monitor.failed" : "right-control.monitor.started")
-        return token != nil
+        localToken = NSEvent.addLocalMonitorForEvents(matching: .flagsChanged) { [weak self] event in
+            MainActor.assumeIsolated { self?.handle(event) }
+            return event
+        }
+        Diagnostics.record("right-control.monitor global=\(globalToken != nil) local=\(localToken != nil) accessibility=\(AXIsProcessTrusted()) input-monitoring=\(CGPreflightListenEventAccess())")
+        return globalToken != nil && localToken != nil
     }
 
     func stop() {
-        if let token { NSEvent.removeMonitor(token) }
-        token = nil
+        if let globalToken { NSEvent.removeMonitor(globalToken) }
+        if let localToken { NSEvent.removeMonitor(localToken) }
+        globalToken = nil
+        localToken = nil
         onHoldStart = nil
         onHoldEnd = nil
         onStickyStart = nil
@@ -117,14 +125,19 @@ enum DictationTrigger: Codable, Equatable {
     }
 
     private func handle(_ event: NSEvent) {
-        if event.keyCode == 62 { Diagnostics.record("right-control.event") }
+        if event.keyCode == UInt16(kVK_RightControl) {
+            observedEventCount += 1
+            Diagnostics.record("right-control.event pressed=\(event.modifierFlags.contains(.control))")
+        } else if event.modifierFlags.contains(.control) {
+            Diagnostics.record("control-modifier.event code=\(event.keyCode)")
+        }
         accept(keyCode: event.keyCode,
                isPressed: event.modifierFlags.contains(.control),
                at: event.timestamp)
     }
 
     func accept(keyCode: UInt16, isPressed: Bool, at now: TimeInterval) {
-        guard keyCode == 62 else {
+        guard keyCode == UInt16(kVK_RightControl) else {
             if case .firstTap = state { state = .ready }
             if case .pressing = state { reset() }
             return

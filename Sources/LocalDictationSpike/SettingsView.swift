@@ -10,13 +10,15 @@ struct SettingsView: View {
     @ObservedObject var dictionaryStore: DictionaryStore
     let trigger: DictationTrigger
     let applyTrigger: (DictationTrigger) -> String?
+    let rightControlEventCount: () -> Int
 
     var body: some View {
         TabView(selection: $section) {
             MicrophoneSettingsView(store: microphoneStore)
                 .tabItem { Label("Микрофон", systemImage: "mic.fill") }
                 .tag(SettingsSection.microphone)
-            TriggerSettingsView(trigger: trigger, apply: applyTrigger)
+            TriggerSettingsView(trigger: trigger, apply: applyTrigger,
+                                rightControlEventCount: rightControlEventCount)
                 .tabItem { Label("Клавиши", systemImage: "keyboard") }
                 .tag(SettingsSection.keyboard)
             DictionaryView(store: dictionaryStore)

@@ -455,25 +455,54 @@ private let cancelHotKeyID: UInt32 = 2
         if settingsWindow == nil {
             Diagnostics.record("settings.window.create")
             let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 720, height: 490),
-                                  styleMask: [.titled, .closable, .miniaturizable, .fullSizeContentView],
+                                  styleMask: [.titled, .closable, .miniaturizable],
                                   backing: .buffered, defer: false)
             window.title = "Настройки"
-            window.titlebarAppearsTransparent = true
+            window.isReleasedWhenClosed = false
+            window.level = .floating
+            window.collectionBehavior = [.moveToActiveSpace, .auxiliary, .fullScreenAuxiliary]
             window.contentView = NSHostingView(rootView: SettingsView(microphoneStore: microphoneStore,
                                                                       dictionaryStore: dictionaryStore,
                                                                       trigger: trigger,
                                                                       applyTrigger: { [weak self] candidate in
                 self?.installTrigger(candidate, persist: true)
+            }, rightControlEventCount: { [weak self] in
+                self?.rightControlMonitor.observedEventCount ?? 0
             }))
             window.center()
             settingsWindow = window
+            NotificationCenter.default.addObserver(self, selector: #selector(settingsWindowWillClose),
+                                                   name: NSWindow.willCloseNotification, object: window)
         }
         Diagnostics.record("settings.microphones.refresh.begin")
         microphoneStore.refresh()
         Diagnostics.record("settings.microphones.refresh.end")
+        if let window = settingsWindow {
+            let screen = window.screen ?? NSScreen.main
+            if let visibleFrame = screen?.visibleFrame, !window.frame.intersects(visibleFrame) {
+                window.center()
+                Diagnostics.record("settings.window.recentered")
+            }
+            if window.isMiniaturized { window.deminiaturize(nil) }
+            Diagnostics.record("settings.window.order.begin")
+            window.orderFrontRegardless()
+            Diagnostics.record("settings.window.order.end")
+        }
+        Diagnostics.record("settings.application.activate.begin")
         NSApplication.shared.activate(ignoringOtherApps: true)
+        Diagnostics.record("settings.application.activate.end")
+        Diagnostics.record("settings.window.make-key.begin")
         settingsWindow?.makeKeyAndOrderFront(nil)
-        Diagnostics.record("settings.open.end")
+        Diagnostics.record("settings.window.make-key.end")
+        Diagnostics.record("settings.open.end visible=\(settingsWindow?.isVisible ?? false) key=\(settingsWindow?.isKeyWindow ?? false)")
+    }
+
+    @objc private func settingsWindowWillClose(_ notification: Notification) {
+        Diagnostics.record("settings.window.closed")
+        if let window = notification.object as? NSWindow {
+            NotificationCenter.default.removeObserver(self, name: NSWindow.willCloseNotification, object: window)
+        }
+        settingsWindow = nil
     }
 
     @objc private func quit() { NSApplication.shared.terminate(nil) }
@@ -489,6 +518,7 @@ private let cancelHotKeyID: UInt32 = 2
         clearEscapeStopHotKey()
         if let eventHandler { RemoveEventHandler(eventHandler) }
         NSWorkspace.shared.notificationCenter.removeObserver(self)
+        NotificationCenter.default.removeObserver(self)
     }
 }
 
@@ -571,14 +601,20 @@ if CommandLine.arguments.contains("--settings-check") {
     let dictionary = DictionaryStore()
     for _ in 0..<30 {
         microphones.refresh()
-        let view = NSHostingView(rootView: SettingsView(microphoneStore: microphones,
-                                                       dictionaryStore: dictionary,
-                                                       trigger: .default,
-                                                       applyTrigger: { _ in nil }))
-        view.frame = NSRect(x: 0, y: 0, width: 720, height: 490)
-        view.layoutSubtreeIfNeeded()
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 720, height: 490),
+                              styleMask: [.titled, .closable, .miniaturizable],
+                              backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.collectionBehavior = [.moveToActiveSpace, .auxiliary, .fullScreenAuxiliary]
+        window.contentView = NSHostingView(rootView: SettingsView(microphoneStore: microphones,
+                                                                  dictionaryStore: dictionary,
+                                                                  trigger: .default,
+                                                                  applyTrigger: { _ in nil },
+                                                                  rightControlEventCount: { 0 }))
+        window.contentView?.layoutSubtreeIfNeeded()
+        window.close()
     }
-    print("Settings creation and microphone refresh passed")
+    print("Settings window lifecycle and microphone refresh passed")
     exit(0)
 }
 
