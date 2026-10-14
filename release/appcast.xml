@@ -6,6 +6,22 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
     <channel>
         <title>LocalDictationSpike</title>
         <item>
+            <title>0.2.7</title>
+            <pubDate>Wed, 14 Oct 2026 10:26:31 +0300</pubDate>
+            <sparkle:version>9</sparkle:version>
+            <sparkle:shortVersionString>0.2.7</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
+            <description sparkle:format="markdown"><![CDATA[# Local Dictation 0.2.7
+
+- В разделе «Общие» добавлена выключенная по умолчанию галочка «Нажимать Enter после диктовки». При включении после обычной успешной вставки текста приложение нажимает Enter в активном приложении.
+- Если вставка не удалась или активное приложение сменилось, Enter не отправляется. Повторная вставка сохранённого текста из меню тоже не нажимает Enter.
+
+Опция действует для любого активного поля: в некоторых редакторах Enter может добавить строку или выполнить другое действие. Диктовка, словарь и диагностика остаются локальными; сеть используется только при проверке обновлений по кнопке.
+]]></description>
+            <enclosure url="https://github.com/execaus/local-dictation/releases/download/v0.2.7/LocalDictation-0.2.7-macos-arm64.zip" length="537790733" type="application/octet-stream" sparkle:edSignature="thL7m3eJK1CNr48WgbMWwkebLgA4iHoGTvKRGueuMII53QJ8BaWjgiTMR1yYTz5JbHuyHccRG/2chBfn8NKSDg=="/>
+        </item>
+        <item>
             <title>0.2.6</title>
             <pubDate>Thu, 08 Oct 2026 17:59:34 +0300</pubDate>
             <sparkle:version>8</sparkle:version>
@@ -38,31 +54,9 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
 ]]></description>
             <enclosure url="https://github.com/execaus/local-dictation/releases/download/v0.2.5/LocalDictation-0.2.5-macos-arm64.zip" length="537782799" type="application/octet-stream" sparkle:edSignature="JpbW/X+eim+SHeQaQ+P58gncALx0dSIn0YNmQ/XCYC2aGL6KebfWwKg/C0r082IvjpDGgUm+a0CKrKA4qKmvDQ=="/>
         </item>
-        <item>
-            <title>0.2.4</title>
-            <pubDate>Thu, 08 Oct 2026 14:45:54 +0300</pubDate>
-            <sparkle:version>6</sparkle:version>
-            <sparkle:shortVersionString>0.2.4</sparkle:shortVersionString>
-            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
-            <description sparkle:format="markdown"><![CDATA[# Local Dictation 0.2.4
-
-Обычный релиз для macOS. Запись и распознавание остаются локальными. Единственное сетевое действие приложения — проверка и загрузка обновления с GitHub после нажатия соответствующего пункта меню.
-
-- Запуск по умолчанию перенесён на правую Option: два быстрых нажатия включают запись, удержание записывает до отпускания. Настройка прежнего правого Control при обновлении автоматически заменяется новым вариантом; пользовательские сочетания сохраняются.
-- Esc во время записи отменяет её без распознавания и вставки. Запись после двойного нажатия Option завершается повторным двойным нажатием или через меню.
-- Вставка больше не зависит от имени IDE. Если активное поле недоступно через Accessibility, приложение вводит текст системным клавиатурным событием в текущее активное окно. Если активное приложение сменилось, текст остаётся доступен для повторной вставки.
-- Из настроек удалены счётчик и подсказки для правого Control.
-- В меню появился пункт «Проверить и установить обновление…». Sparkle проверяет подписи ленты и архива, затем предлагает установить новую версию без ручного копирования приложения. Фоновая проверка отключена.
-- Панель записи и настройки получили более лёгкие полупрозрачные материалы и оформление в стиле macOS Tahoe.
-
-Для запасной вставки нужно заранее поставить курсор в нужное поле: если приложение не показывает поле через Accessibility, его тип проверить невозможно. Сборка подписана локально (ad hoc), без нотарификации Apple. Закройте прежнюю копию и установите новую из архива. Контрольная сумма архива находится в `SHA256SUMS`.
-]]></description>
-            <enclosure url="https://github.com/execaus/local-dictation/releases/download/v0.2.4/LocalDictation-0.2.4-macos-arm64.zip" length="536300962" type="application/octet-stream" sparkle:edSignature="M9udlBM+at3s87VV6akVHGqgvSZ9A1u936dzv7DhPBBCMNavN/K9mQI1HYUBzd9OXBTW9Bl7z9tllMb6AbFpDQ=="/>
-        </item>
     </channel>
 </rss>
 <!-- sparkle-signatures:
-edSignature: dlClJKYIuWu557UCr1/c+cYrHKUsZsDD3Fm047UFKbFOI4D7EmAmDOXRb8kuKNoJlZOVSd6BUEVpFkjO+rzOCQ==
-length: 7519
+edSignature: 2uRM2hS7mIpWXzrAdHuV5BV7bB/KJpikeOxCSnwnxRNJHHmZGGQliyOLEHXiNmgY3Dz0CblAinFNn8rHmT9nDQ==
+length: 5806
 -->

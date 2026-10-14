@@ -1,5 +1,6 @@
 import AppKit
 import ApplicationServices
+import Carbon.HIToolbox
 
 enum InsertError: LocalizedError {
     case permissionDenied
@@ -72,6 +73,25 @@ enum TextInserter {
         // The editor must process an input event itself. Setting AXSelectedText can
         // change the rendered text without updating an IDE editor's document model.
         try postText(text, to: frontmostPID)
+    }
+
+    static func sendReturn(expectedPID: pid_t) throws {
+        guard AXIsProcessTrusted() else { throw InsertError.permissionDenied }
+        guard NSWorkspace.shared.frontmostApplication?.processIdentifier == expectedPID else {
+            Diagnostics.record("submission.frontmost-application-changed")
+            throw InsertError.noFocusedElement
+        }
+        guard let source = CGEventSource(stateID: .privateState),
+              let keyDown = CGEvent(keyboardEventSource: source,
+                                    virtualKey: CGKeyCode(kVK_Return), keyDown: true),
+              let keyUp = CGEvent(keyboardEventSource: source,
+                                  virtualKey: CGKeyCode(kVK_Return), keyDown: false) else {
+            throw InsertError.eventCreationFailed
+        }
+        keyDown.flags = []
+        keyUp.flags = []
+        keyDown.postToPid(expectedPID)
+        keyUp.postToPid(expectedPID)
     }
 
     private static func postText(_ text: String, to pid: pid_t) throws {

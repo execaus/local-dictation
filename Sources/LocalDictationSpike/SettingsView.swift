@@ -34,6 +34,7 @@ struct SettingsView: View {
 }
 
 private struct GeneralSettingsView: View {
+    @AppStorage("submitWithReturn.v1") private var submitWithReturn = false
     let checkForUpdates: () -> Void
     let requestAccessibility: () -> Void
 
@@ -42,41 +43,56 @@ private struct GeneralSettingsView: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 20) {
-            VStack(alignment: .leading, spacing: 5) {
-                Label("Локальная диктовка", systemImage: "waveform")
-                    .font(.title2.bold())
-                Text("Версия \(version)")
-                    .foregroundStyle(.secondary)
-            }
+        ScrollView {
+            VStack(alignment: .leading, spacing: 20) {
+                VStack(alignment: .leading, spacing: 5) {
+                    Label("Локальная диктовка", systemImage: "waveform")
+                        .font(.title2.bold())
+                    Text("Версия \(version)")
+                        .foregroundStyle(.secondary)
+                }
 
-            VStack(alignment: .leading, spacing: 16) {
-                Label("Обновления", systemImage: "arrow.triangle.2.circlepath")
-                    .font(.headline)
-                Text("Проверка GitHub запускается только по нажатию кнопки. Диктовка остаётся локальной.")
-                    .foregroundStyle(.secondary)
-                Button("Проверить и установить обновление…", action: checkForUpdates)
-                    .buttonStyle(.borderedProminent)
-            }
-            .padding(16)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                VStack(alignment: .leading, spacing: 16) {
+                    Label("Обновления", systemImage: "arrow.triangle.2.circlepath")
+                        .font(.headline)
+                    Text("Проверка GitHub запускается только по нажатию кнопки. Диктовка остаётся локальной.")
+                        .foregroundStyle(.secondary)
+                    Button("Проверить и установить обновление…", action: checkForUpdates)
+                        .buttonStyle(.borderedProminent)
+                }
+                .padding(16)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
 
-            VStack(alignment: .leading, spacing: 16) {
-                Label("Универсальный доступ", systemImage: "hand.raised")
-                    .font(.headline)
-                Text("Нужен для запуска правой Option и вставки текста в другие приложения.")
-                    .foregroundStyle(.secondary)
-                Button("Разрешить Универсальный доступ…", action: requestAccessibility)
-                    .buttonStyle(.bordered)
+                VStack(alignment: .leading, spacing: 12) {
+                    Label("Отправка сообщения", systemImage: "return")
+                        .font(.headline)
+                    Toggle("Нажимать Enter после диктовки", isOn: $submitWithReturn)
+                        .toggleStyle(.checkbox)
+                    Text("Выключено по умолчанию. После вставки текста Enter отправляется в активное приложение. В некоторых полях он добавляет строку или выполняет другое действие. Повторная вставка из меню Enter не нажимает.")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                }
+                .padding(16)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+
+                VStack(alignment: .leading, spacing: 16) {
+                    Label("Универсальный доступ", systemImage: "hand.raised")
+                        .font(.headline)
+                    Text("Нужен для запуска правой Option и вставки текста в другие приложения.")
+                        .foregroundStyle(.secondary)
+                    Button("Разрешить Универсальный доступ…", action: requestAccessibility)
+                        .buttonStyle(.bordered)
+                }
+                .padding(16)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                Spacer()
             }
-            .padding(16)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-            Spacer()
+            .padding(24)
+            .frame(maxWidth: .infinity, alignment: .topLeading)
         }
-        .padding(24)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(.ultraThinMaterial)
     }
 }

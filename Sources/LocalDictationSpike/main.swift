@@ -354,18 +354,18 @@ private let cancelHotKeyID: UInt32 = 2
         }
     }
 
-    private func insertRecognizedText(_ text: String, into pid: pid_t) {
+    private func insertRecognizedText(_ text: String, into pid: pid_t, sendOnSuccess: Bool = true) {
         pendingText = text
         retryInsertItem.isEnabled = true
         // The field selected after recognition takes precedence over the app
         // that was frontmost when recording began.
         let frontmostPID = NSWorkspace.shared.frontmostApplication?.processIdentifier
         if let frontmostPID, frontmostPID != ProcessInfo.processInfo.processIdentifier {
-            performInsertion(text, into: frontmostPID)
+            performInsertion(text, into: frontmostPID, sendOnSuccess: sendOnSuccess)
         } else if let target = NSRunningApplication(processIdentifier: pid) {
             target.activate()
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self] in
-                self?.performInsertion(text, into: pid)
+                self?.performInsertion(text, into: pid, sendOnSuccess: sendOnSuccess)
             }
         } else {
             Diagnostics.record("insertion.no-target")
@@ -373,13 +373,25 @@ private let cancelHotKeyID: UInt32 = 2
         }
     }
 
-    private func performInsertion(_ text: String, into pid: pid_t) {
+    private func performInsertion(_ text: String, into pid: pid_t, sendOnSuccess: Bool) {
         do {
             Diagnostics.record("insertion.attempt")
             try TextInserter.insert(text, expectedPID: pid)
             pendingText = nil
             retryInsertItem.isEnabled = false
             Diagnostics.record("insertion.success")
+            if sendOnSuccess && UserDefaults.standard.bool(forKey: "submitWithReturn.v1") {
+                do {
+                    try TextInserter.sendReturn(expectedPID: pid)
+                    Diagnostics.record("submission.return-posted")
+                } catch {
+                    Diagnostics.record("submission.error: \(type(of: error))")
+                    let alert = NSAlert()
+                    alert.messageText = "Текст вставлен, но Enter не отправлен"
+                    alert.informativeText = error.localizedDescription
+                    alert.runModal()
+                }
+            }
         } catch {
             Diagnostics.record("insertion.error: \(error.localizedDescription)")
             showError(error, result: text)
@@ -393,7 +405,7 @@ private let cancelHotKeyID: UInt32 = 2
             return
         }
         Diagnostics.record("insertion.retry")
-        insertRecognizedText(text, into: pid)
+        insertRecognizedText(text, into: pid, sendOnSuccess: false)
     }
 
     @objc private func cancelRecording() {
