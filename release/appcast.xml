@@ -6,6 +6,23 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
     <channel>
         <title>LocalDictationSpike</title>
         <item>
+            <title>0.2.8</title>
+            <pubDate>Fri, 16 Oct 2026 09:38:41 +0300</pubDate>
+            <sparkle:version>10</sparkle:version>
+            <sparkle:shortVersionString>0.2.8</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
+            <description sparkle:format="markdown"><![CDATA[# Local Dictation 0.2.8
+
+- Приложение локально считает завершённые записи с каждого микрофона. Перед новой записью оно обновляет набор устройств; если набор изменился, выбирает доступный микрофон с наибольшим счётчиком. При равенстве выбирается системный вход.
+- Ручной выбор в настройках действует, пока набор устройств не изменится. Если микрофон отключится непосредственно перед записью или его запуск не удастся, приложение попробует другие доступные входы вместо ошибки о сохранённом устройстве.
+- В разделе «Микрофон» показан счётчик записей для текущего выбора. В журнал не попадают аудио и текст диктовки.
+
+Диктовка работает локально. Проверка обновлений обращается к GitHub только по нажатию кнопки в настройках.
+]]></description>
+            <enclosure url="https://github.com/execaus/local-dictation/releases/download/v0.2.8/LocalDictation-0.2.8-macos-arm64.zip" length="537806177" type="application/octet-stream" sparkle:edSignature="LSb+6iyhEXXn9ob2l4BT5qiEM9H8bnsbQPVzDcDRyoTmub+0G5ii1Z5Q2HyT/rW9PyrZ6ccJhTX/H1HRjmQMAA=="/>
+        </item>
+        <item>
             <title>0.2.7</title>
             <pubDate>Wed, 14 Oct 2026 10:26:31 +0300</pubDate>
             <sparkle:version>9</sparkle:version>
@@ -37,26 +54,9 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
 ]]></description>
             <enclosure url="https://github.com/execaus/local-dictation/releases/download/v0.2.6/LocalDictation-0.2.6-macos-arm64.zip" length="537784781" type="application/octet-stream" sparkle:edSignature="fBX8ltH4PHtmwoUl/14ln0mg5hKPxslrVF7lJ61GXXZp2CxnNYAC/kzuWbAs/ObuKzCn0cXffVtmhE2L8d9/Dw=="/>
         </item>
-        <item>
-            <title>0.2.5</title>
-            <pubDate>Thu, 08 Oct 2026 15:17:17 +0300</pubDate>
-            <sparkle:version>7</sparkle:version>
-            <sparkle:shortVersionString>0.2.5</sparkle:shortVersionString>
-            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
-            <description sparkle:format="markdown"><![CDATA[# Local Dictation 0.2.5
-
-- После запуска записи двойным нажатием правой Option одно нажатие той же клавиши завершает запись и запускает локальное распознавание. Esc по-прежнему отменяет запись без вставки.
-- В разделе «Общие» настроек показана версия приложения и находятся кнопки обновления и открытия «Универсального доступа».
-- У приложения появилась новая иконка: звуковая волна на полупрозрачной плитке с индикатором записи. Она видна в Finder и в сведениях о приложении.
-
-Диктовка остаётся локальной. Проверка обновлений обращается к GitHub только по нажатию кнопки в настройках. Архив и лента обновлений подписаны отдельно; закрытый ключ остаётся в локальной Связке ключей Mac сборки.
-]]></description>
-            <enclosure url="https://github.com/execaus/local-dictation/releases/download/v0.2.5/LocalDictation-0.2.5-macos-arm64.zip" length="537782799" type="application/octet-stream" sparkle:edSignature="JpbW/X+eim+SHeQaQ+P58gncALx0dSIn0YNmQ/XCYC2aGL6KebfWwKg/C0r082IvjpDGgUm+a0CKrKA4qKmvDQ=="/>
-        </item>
     </channel>
 </rss>
 <!-- sparkle-signatures:
-edSignature: 2uRM2hS7mIpWXzrAdHuV5BV7bB/KJpikeOxCSnwnxRNJHHmZGGQliyOLEHXiNmgY3Dz0CblAinFNn8rHmT9nDQ==
-length: 5806
+edSignature: Cu1UDhmyVnqHV5zx3qcKKO7s//Rnpq7X3QEzN0qQDvUS7AnUBkdwPpEtw3vamUKRtL1av0E9ltpgvW8BuBHZBw==
+length: 5882
 -->

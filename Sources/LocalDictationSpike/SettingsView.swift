@@ -105,7 +105,7 @@ private struct MicrophoneSettingsView: View {
             VStack(alignment: .leading, spacing: 5) {
                 Label("Источник записи", systemImage: "mic.fill")
                     .font(.title2.bold())
-                Text("Выберите микрофон для диктовки. Настройка действует только в этом приложении.")
+                Text("Перед записью приложение проверяет доступные устройства. Если список изменился, выбирается микрофон, с которого чаще всего завершали запись.")
                     .foregroundStyle(.secondary)
             }
 
@@ -125,13 +125,13 @@ private struct MicrophoneSettingsView: View {
             .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .strokeBorder(.white.opacity(0.16)))
 
-            if store.selectedDeviceMissing {
-                Label("Выбранный микрофон сейчас не подключён. Подключите его или выберите другой.",
-                      systemImage: "exclamationmark.triangle.fill")
-                    .foregroundStyle(.orange)
+            if let selectedUID = store.selectedUID {
+                Text("Записей с выбранного микрофона: \(store.useCounts[selectedUID, default: 0])")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
             }
 
-            Text("Если запись почти беззвучна, проверьте доступ к микрофону и уровень входа в Системных настройках macOS. Изменения источника применяются к следующей записи.")
+            Text("Ручной выбор действует, пока список устройств не изменится. При равной частоте предпочтение отдаётся системному входу. Если выбранный источник исчезнет перед началом записи, приложение попробует другие доступные микрофоны.")
                 .font(.callout)
                 .foregroundStyle(.secondary)
             Spacer()

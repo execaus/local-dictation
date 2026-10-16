@@ -5,6 +5,7 @@ struct AudioInputDevice {
     let id: AudioDeviceID
     let uid: String
     let name: String
+    let isBuiltIn: Bool
 }
 
 enum AudioInputDevices {
@@ -24,10 +25,41 @@ enum AudioInputDevices {
         }
         guard status == noErr else { return [] }
         return ids.compactMap { id in
-            guard hasInput(id), let uid = stringProperty(id, kAudioDevicePropertyDeviceUID),
+            guard isAlive(id), hasInput(id), let uid = stringProperty(id, kAudioDevicePropertyDeviceUID),
                   let name = stringProperty(id, kAudioObjectPropertyName) else { return nil }
-            return AudioInputDevice(id: id, uid: uid, name: name)
+            return AudioInputDevice(id: id, uid: uid, name: name,
+                                    isBuiltIn: uint32Property(id, kAudioDevicePropertyTransportType)
+                                        == kAudioDeviceTransportTypeBuiltIn)
         }
+    }
+
+    static func defaultInputUID() -> String? {
+        var address = AudioObjectPropertyAddress(mSelector: kAudioHardwarePropertyDefaultInputDevice,
+                                                 mScope: kAudioObjectPropertyScopeGlobal,
+                                                 mElement: kAudioObjectPropertyElementMain)
+        var deviceID = AudioDeviceID(0)
+        var size = UInt32(MemoryLayout<AudioDeviceID>.size)
+        guard AudioObjectGetPropertyData(AudioObjectID(kAudioObjectSystemObject), &address,
+                                         0, nil, &size, &deviceID) == noErr,
+              deviceID != 0 else { return nil }
+        return stringProperty(deviceID, kAudioDevicePropertyDeviceUID)
+    }
+
+    private static func isAlive(_ id: AudioDeviceID) -> Bool {
+        uint32Property(id, kAudioDevicePropertyDeviceIsAlive) != 0
+    }
+
+    private static func uint32Property(_ id: AudioDeviceID,
+                                       _ selector: AudioObjectPropertySelector) -> UInt32? {
+        var address = AudioObjectPropertyAddress(mSelector: selector,
+                                                 mScope: kAudioObjectPropertyScopeGlobal,
+                                                 mElement: kAudioObjectPropertyElementMain)
+        var value: UInt32 = 0
+        var size = UInt32(MemoryLayout<UInt32>.size)
+        guard AudioObjectGetPropertyData(id, &address, 0, nil, &size, &value) == noErr else {
+            return nil
+        }
+        return value
     }
 
     private static func hasInput(_ id: AudioDeviceID) -> Bool {

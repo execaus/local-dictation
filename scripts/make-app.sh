@@ -42,8 +42,8 @@ cat > "$app_path/Contents/Info.plist" <<'PLIST'
     <key>CFBundleName</key><string>LocalDictationSpike</string>
     <key>CFBundleIconFile</key><string>AppIcon</string>
     <key>CFBundlePackageType</key><string>APPL</string>
-    <key>CFBundleShortVersionString</key><string>0.2.7</string>
-    <key>CFBundleVersion</key><string>9</string>
+    <key>CFBundleShortVersionString</key><string>0.2.8</string>
+    <key>CFBundleVersion</key><string>10</string>
     <key>LSMinimumSystemVersion</key><string>14.0</string>
     <key>LSUIElement</key><true/>
     <key>NSMicrophoneUsageDescription</key><string>Запись речи для локального распознавания на этом Mac.</string>
@@ -65,16 +65,17 @@ codesign --force --sign - --deep "$app_path/Contents/Frameworks/Sparkle.framewor
 xattr -rc "$app_path"
 codesign --force --sign - --identifier local.codex.LocalDictationSpike "$app_path"
 codesign --verify --deep --strict "$app_path"
-archive_path="/private/tmp/LocalDictation-0.2.7-macos-arm64.zip"
+archive_path="/private/tmp/LocalDictation-0.2.8-macos-arm64.zip"
 rm -f "$archive_path"
 ditto --noextattr -c -k --keepParent "$app_path" "$archive_path"
 ditto -x -k "$archive_path" "$verification_root"
 xattr -rc "$verification_root/LocalDictationSpike.app"
 codesign --verify --deep --strict "$verification_root/LocalDictationSpike.app"
 mkdir -p "$PWD/release"
-cp "$archive_path" "$PWD/release/LocalDictation-0.2.7-macos-arm64.zip"
+rm -f "$PWD/release/LocalDictation-0.2.8-macos-arm64.zip"
+cp -c "$archive_path" "$PWD/release/LocalDictation-0.2.8-macos-arm64.zip"
 mkdir -p "$PWD/dist"
 rm -rf "$destination"
 ditto --noextattr "$app_path" "$destination"
 xattr -rc "$destination"
-print "Готово: release/LocalDictation-0.2.7-macos-arm64.zip (архив проверен)"
+print "Готово: release/LocalDictation-0.2.8-macos-arm64.zip (архив проверен)"

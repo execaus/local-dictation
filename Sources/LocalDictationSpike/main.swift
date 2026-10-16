@@ -25,6 +25,7 @@ private let cancelHotKeyID: UInt32 = 2
     private var settingsWindow: NSWindow?
     private var lastExternalPID: pid_t?
     private var pendingText: String?
+    private var activeMicrophoneUID: String?
     private var state: State = .idle
     private var trigger: DictationTrigger = {
         guard let data = UserDefaults.standard.data(forKey: "dictationTrigger.v1"),
@@ -299,7 +300,22 @@ private let cancelHotKeyID: UInt32 = 2
                 ])
             }
             Diagnostics.record("recording.start")
-            try recorder.start(microphoneUID: microphoneStore.selectedUID)
+            var recordingStarted = false
+            for uid in microphoneStore.recordingCandidates() {
+                do {
+                    try recorder.start(microphoneUID: uid)
+                    recordingStarted = true
+                    activeMicrophoneUID = uid ?? AudioInputDevices.defaultInputUID()
+                    if uid != microphoneStore.selectedUID {
+                        Diagnostics.record("recording.microphone-fallback")
+                        microphoneStore.selectedUID = uid
+                    }
+                    break
+                } catch {
+                    Diagnostics.record("recording.microphone-attempt-failed: \(type(of: error))")
+                }
+            }
+            guard recordingStarted else { throw RecordingError.microphoneUnavailable }
             state = .recording(pid, mode)
             cancelItem.isEnabled = true
             statusPanel.showRecording()
@@ -307,6 +323,7 @@ private let cancelHotKeyID: UInt32 = 2
             statusItem.button?.image = NSImage(systemSymbolName: "record.circle.fill", accessibilityDescription: "Идёт запись")
         } catch {
             Diagnostics.record("recording.start.error: \(type(of: error))")
+            activeMicrophoneUID = nil
             clearEscapeStopHotKey()
             rightOptionMonitor.reset()
             showError(error)
@@ -317,6 +334,8 @@ private let cancelHotKeyID: UInt32 = 2
         do {
             Diagnostics.record("recording.stop")
             let samples = try recorder.stop()
+            microphoneStore.recordUsage(of: activeMicrophoneUID)
+            activeMicrophoneUID = nil
             state = .processing
             clearEscapeStopHotKey()
             cancelItem.isEnabled = false
@@ -344,6 +363,7 @@ private let cancelHotKeyID: UInt32 = 2
             }
         } catch {
             Diagnostics.record("recording.stop.error: \(type(of: error))")
+            activeMicrophoneUID = nil
             state = .idle
             clearEscapeStopHotKey()
             cancelItem.isEnabled = false
@@ -411,6 +431,7 @@ private let cancelHotKeyID: UInt32 = 2
     @objc private func cancelRecording() {
         guard case .recording = state else { return }
         recorder.cancel()
+        activeMicrophoneUID = nil
         state = .idle
         clearEscapeStopHotKey()
         rightOptionMonitor.reset()
@@ -549,6 +570,20 @@ private let cancelHotKeyID: UInt32 = 2
 }
 
 if CommandLine.arguments.contains("--self-check") {
+    let builtIn = MicrophoneOption(id: "built-in", name: "MacBook", isBuiltIn: true)
+    let external = MicrophoneOption(id: "external", name: "USB", isBuiltIn: false)
+    let useCounts = ["built-in": 8, "external": 12]
+    guard MicrophoneSelection.ranked([builtIn, external], useCounts: useCounts,
+                                     systemDefaultUID: "built-in").first?.id == external.id,
+          MicrophoneSelection.ranked([builtIn], useCounts: useCounts,
+                                     systemDefaultUID: "built-in").first?.id == builtIn.id,
+          MicrophoneSelection.ranked([builtIn, external], useCounts: useCounts,
+                                     systemDefaultUID: "built-in").first?.id == external.id,
+          MicrophoneSelection.ranked([builtIn, external], useCounts: [:],
+                                     systemDefaultUID: "built-in").first?.id == builtIn.id else {
+        fputs("Microphone ranking self-check failed\n", stderr)
+        exit(1)
+    }
     let rules = [TermRule(spoken: "постгрес", written: "PostgreSQL"),
                  TermRule(spoken: "юз эффект", written: "useEffect"),
                  TermRule(spoken: "цена", written: "$5\\x")]
