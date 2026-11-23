@@ -6,6 +6,21 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
     <channel>
         <title>LocalDictationSpike</title>
         <item>
+            <title>0.2.9</title>
+            <pubDate>Mon, 23 Nov 2026 15:18:40 +0300</pubDate>
+            <sparkle:version>11</sparkle:version>
+            <sparkle:shortVersionString>0.2.9</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
+            <description sparkle:format="markdown"><![CDATA[# Local Dictation 0.2.9
+
+- Добавлен режим «Не засыпать» из Personal Not Sleep: ручное включение, таймер, недельное расписание и настройка запуска при входе в macOS. Управление находится в меню и в отдельном разделе общего окна настроек. При первом запуске локальные правила и активный режим переносятся из прежней утилиты; старую программу и её автозапуск нужно выключить отдельно.
+- Длинная диктовка теперь распознаётся последовательными отрезками до конца записи. Тихие паузы не приводят к отбрасыванию всего аудио. Проверены трёх- и пятнадцатиминутные тестовые файлы с речью в начале, середине и конце.
+- Диктовка и режим без сна работают локально. Сеть используется только при нажатии кнопки проверки обновлений.
+]]></description>
+            <enclosure url="https://github.com/execaus/local-dictation/releases/download/v0.2.9/LocalDictation-0.2.9-macos-arm64.zip" length="537885853" type="application/octet-stream" sparkle:edSignature="ESQAW9lb1fZORRzFLKXVcMPBzGlwgLSxrE1HdD6AnzpUgzg7pJ6W5RPZGZ0QgzWEKTBMFBIoU/OZZzDx7BU4CQ=="/>
+        </item>
+        <item>
             <title>0.2.8</title>
             <pubDate>Fri, 16 Oct 2026 09:38:41 +0300</pubDate>
             <sparkle:version>10</sparkle:version>
@@ -38,25 +53,9 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
 ]]></description>
             <enclosure url="https://github.com/execaus/local-dictation/releases/download/v0.2.7/LocalDictation-0.2.7-macos-arm64.zip" length="537790733" type="application/octet-stream" sparkle:edSignature="thL7m3eJK1CNr48WgbMWwkebLgA4iHoGTvKRGueuMII53QJ8BaWjgiTMR1yYTz5JbHuyHccRG/2chBfn8NKSDg=="/>
         </item>
-        <item>
-            <title>0.2.6</title>
-            <pubDate>Thu, 08 Oct 2026 17:59:34 +0300</pubDate>
-            <sparkle:version>8</sparkle:version>
-            <sparkle:shortVersionString>0.2.6</sparkle:shortVersionString>
-            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
-            <description sparkle:format="markdown"><![CDATA[# Local Dictation 0.2.6
-
-- Убрана прямоугольная полупрозрачная подложка под плавающей плашкой записи и распознавания. Видна только скруглённая карточка.
-- Диктовка, словарь и диагностика остаются локальными. Проверка обновлений обращается к GitHub только по нажатию кнопки в настройках.
-
-Архив и лента обновлений подписаны отдельно. Закрытый ключ остаётся в локальной Связке ключей Mac сборки.
-]]></description>
-            <enclosure url="https://github.com/execaus/local-dictation/releases/download/v0.2.6/LocalDictation-0.2.6-macos-arm64.zip" length="537784781" type="application/octet-stream" sparkle:edSignature="fBX8ltH4PHtmwoUl/14ln0mg5hKPxslrVF7lJ61GXXZp2CxnNYAC/kzuWbAs/ObuKzCn0cXffVtmhE2L8d9/Dw=="/>
-        </item>
     </channel>
 </rss>
 <!-- sparkle-signatures:
-edSignature: Cu1UDhmyVnqHV5zx3qcKKO7s//Rnpq7X3QEzN0qQDvUS7AnUBkdwPpEtw3vamUKRtL1av0E9ltpgvW8BuBHZBw==
-length: 5882
+edSignature: UpB0nYS48ZEEtuXYA/pAf7TotX1kr+A7MqLdW6gDowcfBNVU4cUvm1BZwTA3eNRT30zUrV/Hm4zAVlnwo7+2Dw==
+length: 6459
 -->

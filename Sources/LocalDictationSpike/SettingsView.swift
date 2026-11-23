@@ -1,13 +1,14 @@
 import SwiftUI
 
 private enum SettingsSection: Hashable {
-    case general, microphone, keyboard, dictionary
+    case general, microphone, keyboard, dictionary, sleep
 }
 
 struct SettingsView: View {
     @State private var section: SettingsSection = .general
     @ObservedObject var microphoneStore: MicrophoneStore
     @ObservedObject var dictionaryStore: DictionaryStore
+    @ObservedObject var sleepModel: SleepModel
     let trigger: DictationTrigger
     let applyTrigger: (DictationTrigger) -> String?
     let checkForUpdates: () -> Void
@@ -28,6 +29,9 @@ struct SettingsView: View {
             DictionaryView(store: dictionaryStore)
                 .tabItem { Label("Словарь", systemImage: "text.book.closed") }
                 .tag(SettingsSection.dictionary)
+            SleepSettingsView(model: sleepModel)
+                .tabItem { Label("Не засыпать", systemImage: "sun.max.fill") }
+                .tag(SettingsSection.sleep)
         }
         .frame(width: 720, height: 490)
     }

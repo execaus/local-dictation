@@ -132,7 +132,7 @@ enum AudioFileLoader {
         let file = try AVAudioFile(forReading: url)
         let format = file.processingFormat
         let capacity = AVAudioFrameCount(file.length)
-        guard capacity > 0, capacity < 16_000_000,
+        guard capacity > 0, capacity < 100_000_000,
               let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: capacity) else {
             throw RecordingError.invalidAudioFile
         }

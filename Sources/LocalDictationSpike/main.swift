@@ -8,13 +8,14 @@ private let hotKeySignature: OSType = 0x4C445350 // LDSP
 private let hotKeyID: UInt32 = 1
 private let cancelHotKeyID: UInt32 = 2
 
-@MainActor final class AppDelegate: NSObject, NSApplicationDelegate {
+@MainActor final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private enum RecordingMode { case toggle, hold, sticky }
     private enum State { case idle, recording(pid_t, RecordingMode), processing }
     private var statusItem: NSStatusItem!
     private var actionItem: NSMenuItem!
     private var cancelItem: NSMenuItem!
     private var retryInsertItem: NSMenuItem!
+    private let sleepMenu = NSMenu()
     private var eventHandler: EventHandlerRef?
     private var hotKey: EventHotKeyRef?
     private var cancelHotKey: EventHotKeyRef?
@@ -36,6 +37,7 @@ private let cancelHotKeyID: UInt32 = 2
     private let recognizer = LocalRecognizer()
     private let dictionaryStore = DictionaryStore()
     private let microphoneStore = MicrophoneStore()
+    private let sleepModel = SleepModel()
     private let statusPanel = StatusPanel()
     private let rightOptionMonitor = DoubleRightOptionMonitor()
     private let updaterController = SPUStandardUpdaterController(startingUpdater: true,
@@ -56,6 +58,10 @@ private let cancelHotKeyID: UInt32 = 2
         retryInsertItem.isEnabled = false
         menu.addItem(retryInsertItem)
         menu.addItem(.separator())
+        let sleepItem = NSMenuItem(title: "Не засыпать", action: nil, keyEquivalent: "")
+        sleepMenu.delegate = self
+        sleepItem.submenu = sleepMenu
+        menu.addItem(sleepItem)
         menu.addItem(NSMenuItem(title: "Настройки…", action: #selector(showSettings), keyEquivalent: ""))
         menu.addItem(NSMenuItem(title: "Открыть журнал диагностики…", action: #selector(openDiagnostics), keyEquivalent: ""))
         menu.addItem(NSMenuItem(title: "Выход", action: #selector(quit), keyEquivalent: "q"))
@@ -73,6 +79,34 @@ private let cancelHotKeyID: UInt32 = 2
         NSWorkspace.shared.notificationCenter.addObserver(self, selector: #selector(handleSessionInterruption),
                                                           name: NSWorkspace.willSleepNotification, object: nil)
     }
+
+    func menuNeedsUpdate(_ menu: NSMenu) {
+        guard menu === sleepMenu else { return }
+        sleepModel.refresh()
+        menu.removeAllItems()
+        let state = NSMenuItem(title: sleepModel.stateText, action: nil, keyEquivalent: "")
+        state.isEnabled = false
+        menu.addItem(state)
+        menu.addItem(.separator())
+        let manual = NSMenuItem(title: "Включить до выключения", action: #selector(enableNoSleep), keyEquivalent: "")
+        manual.target = self
+        menu.addItem(manual)
+        for minutes in [15, 30, 60, 120] {
+            let title = minutes < 60 ? "На \(minutes) минут" : "На \(minutes / 60) \(minutes == 60 ? "час" : "часа")"
+            let item = NSMenuItem(title: title, action: #selector(enableNoSleepForPreset(_:)), keyEquivalent: "")
+            item.tag = minutes
+            item.target = self
+            menu.addItem(item)
+        }
+        let stop = NSMenuItem(title: "Выключить", action: #selector(disableNoSleep), keyEquivalent: "")
+        stop.target = self
+        stop.isEnabled = sleepModel.reason != .inactive
+        menu.addItem(stop)
+    }
+
+    @objc private func enableNoSleep() { sleepModel.startManual() }
+    @objc private func enableNoSleepForPreset(_ sender: NSMenuItem) { sleepModel.startTimer(minutes: sender.tag) }
+    @objc private func disableNoSleep() { sleepModel.stop() }
 
     private func registerHotKey() {
         var eventType = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
@@ -508,6 +542,7 @@ private let cancelHotKeyID: UInt32 = 2
             window.collectionBehavior = [.moveToActiveSpace, .auxiliary, .fullScreenAuxiliary]
             window.contentView = NSHostingView(rootView: SettingsView(microphoneStore: microphoneStore,
                                                                       dictionaryStore: dictionaryStore,
+                                                                      sleepModel: sleepModel,
                                                                       trigger: trigger,
                                                                       applyTrigger: { [weak self] candidate in
                 self?.installTrigger(candidate, persist: true)
@@ -570,6 +605,44 @@ private let cancelHotKeyID: UInt32 = 2
 }
 
 if CommandLine.arguments.contains("--self-check") {
+    let longRanges = AudioChunkPlan.ranges(sampleCount: 16_000 * 15 * 60)
+    var sparseSpeech = [Float](repeating: 0, count: AudioChunkPlan.chunkSize)
+    for index in 8 * 16_000..<(8 * 16_000 + 8_000) { sparseSpeech[index] = 0.02 }
+    guard longRanges.first?.lowerBound == 0,
+          longRanges.last?.upperBound == 16_000 * 15 * 60,
+          longRanges.allSatisfy({ $0.count <= AudioChunkPlan.chunkSize }),
+          zip(longRanges, longRanges.dropFirst()).allSatisfy({ $0.0.upperBound - $0.1.lowerBound == AudioChunkPlan.overlap }),
+          AudioChunkPlan.hasSignal(sparseSpeech),
+          !AudioChunkPlan.hasSignal([Float](repeating: 0, count: AudioChunkPlan.chunkSize)),
+          AudioChunkPlan.join("первый второй третий", "второй третий четвёртый") == "первый второй третий четвёртый" else {
+        fputs("Long audio chunk self-check failed\n", stderr)
+        exit(1)
+    }
+    let weekdayRule = ScheduleRule(weekdays: [2], startMinute: 23 * 60,
+                                   endMinute: 60)
+    var calendar = Calendar(identifier: .gregorian)
+    calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+    let tuesday = calendar.date(from: DateComponents(year: 2026, month: 10, day: 20,
+                                                     hour: 0, minute: 30))!
+    guard ScheduleEvaluator.activeIntervals(at: tuesday, rules: [weekdayRule],
+                                            calendar: calendar).count == 1 else {
+        fputs("No-sleep schedule self-check failed\n", stderr)
+        exit(1)
+    }
+    var hold = HoldState()
+    hold.stop(at: tuesday, rules: [weekdayRule], calendar: calendar)
+    guard hold.evaluate(at: tuesday, rules: [weekdayRule], calendar: calendar) == .inactive,
+          hold.evaluate(at: tuesday.addingTimeInterval(31 * 60), rules: [weekdayRule],
+                        calendar: calendar) == .inactive else {
+        fputs("No-sleep suppression self-check failed\n", stderr)
+        exit(1)
+    }
+    hold.timerEnd = tuesday.addingTimeInterval(60)
+    guard hold.evaluate(at: tuesday, rules: [], calendar: calendar) == .timer(tuesday.addingTimeInterval(60)),
+          hold.evaluate(at: tuesday.addingTimeInterval(60), rules: [], calendar: calendar) == .inactive else {
+        fputs("No-sleep timer self-check failed\n", stderr)
+        exit(1)
+    }
     let builtIn = MicrophoneOption(id: "built-in", name: "MacBook", isBuiltIn: true)
     let external = MicrophoneOption(id: "external", name: "USB", isBuiltIn: false)
     let useCounts = ["built-in": 8, "external": 12]
@@ -661,11 +734,27 @@ if CommandLine.arguments.contains("--audio-check") {
     exit(0)
 }
 
+if CommandLine.arguments.contains("--sleep-check") {
+    let assertion = SleepAssertion()
+    guard assertion.setActive(true), assertion.isActive else {
+        fputs("No-sleep assertion check failed\n", stderr)
+        exit(1)
+    }
+    assertion.release()
+    guard !assertion.isActive else {
+        fputs("No-sleep assertion release failed\n", stderr)
+        exit(1)
+    }
+    print("No-sleep assertion check passed")
+    exit(0)
+}
+
 if CommandLine.arguments.contains("--settings-check") {
     let app = NSApplication.shared
     app.setActivationPolicy(.accessory)
     let microphones = MicrophoneStore()
     let dictionary = DictionaryStore()
+    let sleep = SleepModel(testing: true)
     for _ in 0..<30 {
         microphones.refresh()
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 720, height: 490),
@@ -675,6 +764,7 @@ if CommandLine.arguments.contains("--settings-check") {
         window.collectionBehavior = [.moveToActiveSpace, .auxiliary, .fullScreenAuxiliary]
         window.contentView = NSHostingView(rootView: SettingsView(microphoneStore: microphones,
                                                                   dictionaryStore: dictionary,
+                                                                  sleepModel: sleep,
                                                                   trigger: .default,
                                                                   applyTrigger: { _ in nil },
                                                                   checkForUpdates: {},

@@ -50,14 +50,6 @@ final class LocalRecognizer: @unchecked Sendable {
     }
 
     private func transcribeOnQueue(_ samples: [Float], prompt: String) -> Result<String, RecognitionError> {
-        // Silence and a muted/wrong microphone can make Whisper repeat prompt words.
-        // Reject near-silent input before passing dictionary hints to the model.
-        let signal = samples.reduce(into: (sum: Double(0), peak: Float(0))) { result, sample in
-            result.sum += Double(sample) * Double(sample)
-            result.peak = max(result.peak, abs(sample))
-        }
-        let rms = sqrt(signal.sum / Double(max(samples.count, 1)))
-        guard signal.peak >= 0.005, rms >= 0.0008 else { return .failure(.noAudioSignal) }
         guard let modelURL = overrideModelURL ?? Bundle.main.url(forResource: "ggml-large-v3-turbo-q5_0", withExtension: "bin") else {
             return .failure(.modelMissing)
         }
@@ -67,32 +59,99 @@ final class LocalRecognizer: @unchecked Sendable {
         }
         guard let context else { return .failure(.modelLoadFailed) }
 
-        var parameters = whisper_full_default_params(WHISPER_SAMPLING_GREEDY)
-        parameters.n_threads = Int32(min(8, ProcessInfo.processInfo.activeProcessorCount))
-        parameters.translate = false
-        parameters.no_context = true
-        parameters.no_timestamps = true
-        parameters.print_progress = false
-        parameters.print_realtime = false
-        parameters.print_timestamps = false
-        let language = Array("ru".utf8CString)
-        let promptBytes = Array(prompt.utf8CString)
-        let status = language.withUnsafeBufferPointer { languageBuffer in
-            parameters.language = languageBuffer.baseAddress
-            return promptBytes.withUnsafeBufferPointer { promptBuffer in
-                parameters.initial_prompt = prompt.isEmpty ? nil : promptBuffer.baseAddress
-                return samples.withUnsafeBufferPointer { sampleBuffer in
-                    whisper_full(context, parameters, sampleBuffer.baseAddress, Int32(sampleBuffer.count))
+        var combined = ""
+        var hadSignal = false
+        for range in AudioChunkPlan.ranges(sampleCount: samples.count) {
+            let chunk = Array(samples[range])
+            // Quiet stretches between spoken phrases are normal in a long recording.
+            if !AudioChunkPlan.hasSignal(chunk) { continue }
+            hadSignal = true
+            var parameters = whisper_full_default_params(WHISPER_SAMPLING_GREEDY)
+            parameters.n_threads = Int32(min(8, ProcessInfo.processInfo.activeProcessorCount))
+            parameters.translate = false
+            parameters.no_context = true
+            parameters.no_timestamps = true
+            parameters.print_progress = false
+            parameters.print_realtime = false
+            parameters.print_timestamps = false
+            let language = Array("ru".utf8CString)
+            let promptBytes = Array(prompt.utf8CString)
+            let status = language.withUnsafeBufferPointer { languageBuffer in
+                parameters.language = languageBuffer.baseAddress
+                return promptBytes.withUnsafeBufferPointer { promptBuffer in
+                    parameters.initial_prompt = prompt.isEmpty ? nil : promptBuffer.baseAddress
+                    return chunk.withUnsafeBufferPointer { sampleBuffer in
+                        whisper_full(context, parameters, sampleBuffer.baseAddress, Int32(sampleBuffer.count))
+                    }
                 }
             }
+            guard status == 0 else { return .failure(.inferenceFailed) }
+            let count = whisper_full_n_segments(context)
+            let text = (0..<count).compactMap { index -> String? in
+                guard let pointer = whisper_full_get_segment_text(context, index) else { return nil }
+                return String(cString: pointer)
+            }.joined().trimmingCharacters(in: .whitespacesAndNewlines)
+            combined = AudioChunkPlan.join(combined, text)
         }
-        guard status == 0 else { return .failure(.inferenceFailed) }
-        let count = whisper_full_n_segments(context)
-        let text = (0..<count).compactMap { index -> String? in
-            guard let pointer = whisper_full_get_segment_text(context, index) else { return nil }
-            return String(cString: pointer)
-        }.joined().trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else { return .failure(.emptyResult) }
-        return .success(text)
+        guard hadSignal else { return .failure(.noAudioSignal) }
+        guard !combined.isEmpty else { return .failure(.emptyResult) }
+        return .success(combined)
+    }
+}
+
+enum AudioChunkPlan {
+    static let sampleRate = 16_000
+    static let chunkSize = sampleRate * 25
+    static let overlap = sampleRate
+
+    static func hasSignal(_ samples: [Float]) -> Bool {
+        for start in stride(from: 0, to: samples.count, by: sampleRate) {
+            let end = min(start + sampleRate, samples.count)
+            var peak: Float = 0
+            var sum = 0.0
+            for sample in samples[start..<end] {
+                peak = max(peak, abs(sample))
+                sum += Double(sample) * Double(sample)
+            }
+            if peak >= 0.005 && sqrt(sum / Double(end - start)) >= 0.0008 {
+                return true
+            }
+        }
+        return false
+    }
+
+    static func ranges(sampleCount: Int) -> [Range<Int>] {
+        guard sampleCount > 0 else { return [] }
+        var result: [Range<Int>] = []
+        var start = 0
+        while start < sampleCount {
+            let end = min(start + chunkSize, sampleCount)
+            result.append(start..<end)
+            if end == sampleCount { break }
+            start = end - overlap
+        }
+        return result
+    }
+
+    static func join(_ previous: String, _ next: String) -> String {
+        guard !next.isEmpty else { return previous }
+        guard !previous.isEmpty else { return next }
+        let left = previous.split(whereSeparator: \.isWhitespace)
+        let right = next.split(whereSeparator: \.isWhitespace)
+        let limit = min(12, left.count, right.count)
+        var duplicate = 0
+        if limit > 0 {
+            for count in 2...max(2, limit) where count <= limit {
+                let a = left.suffix(count).map(normalize)
+                let b = right.prefix(count).map(normalize)
+                if a == b { duplicate = count }
+            }
+        }
+        let remainder = right.dropFirst(duplicate).joined(separator: " ")
+        return remainder.isEmpty ? previous : previous + " " + remainder
+    }
+
+    private static func normalize(_ word: Substring) -> String {
+        word.lowercased().filter { $0.isLetter || $0.isNumber }
     }
 }
